@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["MemoryMapError"],"struct":["MemoryAttribute","MemoryDescriptor","MemoryMapIter","MemoryMapKey","MemoryMapMeta","MemoryMapOwned","MemoryMapRef","MemoryMapRefMut","MemoryType"],"trait":["MemoryMap","MemoryMapMut"]};

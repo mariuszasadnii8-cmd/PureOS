@@ -1,0 +1,38 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Exit UEFI boot services."><title>exit_boot_services in uefi::boot - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="uefi" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.0-nightly (096694416 2026-06-29)" data-channel="nightly" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="sidebar-items.js"></script><script defer src="../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc fn"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">exit_boot_services</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../uefi/index.html">uefi</a><span class="version">0.34.1</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">exit_<wbr>boot_<wbr>services</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#safety" title="Safety">Safety</a></li><li><a href="#errors" title="Errors">Errors</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="index.html">In uefi::<wbr>boot</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">uefi</a>::<wbr><a href="index.html">boot</a></div><h1>Function <span class="fn">exit_<wbr>boot_<wbr>services</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/uefi/boot.rs.html#1225-1250">Source</a> </span></div><pre class="rust item-decl"><code>pub unsafe fn exit_boot_services(memory_type: <a class="struct" href="struct.MemoryType.html" title="struct uefi::boot::MemoryType">MemoryType</a>) -&gt; <a class="struct" href="../mem/memory_map/struct.MemoryMapOwned.html" title="struct uefi::mem::memory_map::MemoryMapOwned">MemoryMapOwned</a></code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Exit UEFI boot services.</p>
+<p>After this function completes, UEFI hands over control of the hardware
+to the executing OS loader, which implies that the UEFI boot services
+are shut down and cannot be used anymore. Only UEFI configuration tables
+and run-time services can be used.</p>
+<p>The memory map at the time of exiting boot services returned. The map is
+backed by a pool allocation of the given <code>memory_type</code>. Since the boot
+services function to free that memory is no longer available after calling
+<code>exit_boot_services</code>, the allocation will not be freed on drop.</p>
+<p>Note that once the boot services are exited, associated loggers and
+allocators can’t use the boot services anymore. For the corresponding
+abstractions provided by this crate (see the <a href="../helpers/index.html" title="mod uefi::helpers"><code>helpers</code></a> module),
+invoking this function will automatically disable them. If the
+<code>global_allocator</code> feature is enabled, attempting to use the allocator
+after exiting boot services will panic.</p>
+<h2 id="safety"><a class="doc-anchor" href="#safety">§</a>Safety</h2>
+<p>The caller is responsible for ensuring that no references to
+boot-services data remain. A non-exhaustive list of resources to check:</p>
+<ul>
+<li>All protocols will be invalid after exiting boot services. This
+includes the <a href="../proto/console/text/struct.Output.html" title="struct uefi::proto::console::text::Output"><code>Output</code></a> protocols attached to stdout/stderr. The
+caller must ensure that no protocol references remain.</li>
+<li>The pool allocator is not usable after exiting boot services. Types
+such as <a href="../proto/device_path/text/struct.PoolString.html" title="struct uefi::proto::device_path::text::PoolString"><code>PoolString</code></a> which call <a href="fn.free_pool.html" title="fn uefi::boot::free_pool"><code>free_pool</code></a> on drop
+must be cleaned up before calling <code>exit_boot_services</code>, or leaked to
+avoid drop ever being called.</li>
+<li>All data in the memory map marked as
+<a href="struct.MemoryType.html#associatedconstant.BOOT_SERVICES_CODE" title="associated constant uefi::boot::MemoryType::BOOT_SERVICES_CODE"><code>MemoryType::BOOT_SERVICES_CODE</code></a> and
+<a href="struct.MemoryType.html#associatedconstant.BOOT_SERVICES_DATA" title="associated constant uefi::boot::MemoryType::BOOT_SERVICES_DATA"><code>MemoryType::BOOT_SERVICES_DATA</code></a> will become free memory.</li>
+</ul>
+<h2 id="errors"><a class="doc-anchor" href="#errors">§</a>Errors</h2>
+<p>This function will fail if it is unable to allocate memory for
+the memory map, if it fails to retrieve the memory map, or if
+exiting boot services fails (with up to one retry).</p>
+<p>All errors are treated as unrecoverable because the system is
+now in an undefined state. Rather than returning control to the
+caller, the system will be reset.</p>
+</div></details></section></div></main></body></html>

@@ -1,0 +1,13 @@
+[package]
+name = "pureos_uefi_boot"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+uefi = { version = "0.26", features = ["alloc"] }
+uefi-services = "0.23"
+
+[profile.release]
+panic = "abort"
+lto = true
+opt-level = 3

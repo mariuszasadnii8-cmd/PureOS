@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"attr":["entry","unsafe_protocol"]};

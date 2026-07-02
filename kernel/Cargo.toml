@@ -1,0 +1,16 @@
+[package]
+name = "pureos_kernel"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+uefi = { version = "0.34", default-features = false }
+uefi-raw = "0.10"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+lto = true
+opt-level = 3

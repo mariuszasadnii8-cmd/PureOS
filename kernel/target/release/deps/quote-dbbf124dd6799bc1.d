@@ -1,0 +1,11 @@
+C:\Users\marius\Documents\PureOS\kernel\target\release\deps\quote-dbbf124dd6799bc1.d: C:\Users\marius\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\lib.rs C:\Users\marius\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\ext.rs C:\Users\marius\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\format.rs C:\Users\marius\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\ident_fragment.rs C:\Users\marius\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\to_tokens.rs C:\Users\marius\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\runtime.rs C:\Users\marius\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\spanned.rs
+
+C:\Users\marius\Documents\PureOS\kernel\target\release\deps\libquote-dbbf124dd6799bc1.rmeta: C:\Users\marius\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\lib.rs C:\Users\marius\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\ext.rs C:\Users\marius\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\format.rs C:\Users\marius\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\ident_fragment.rs C:\Users\marius\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\to_tokens.rs C:\Users\marius\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\runtime.rs C:\Users\marius\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\spanned.rs
+
+C:\Users\marius\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\lib.rs:
+C:\Users\marius\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\ext.rs:
+C:\Users\marius\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\format.rs:
+C:\Users\marius\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\ident_fragment.rs:
+C:\Users\marius\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\to_tokens.rs:
+C:\Users\marius\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\runtime.rs:
+C:\Users\marius\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\quote-1.0.46\src\spanned.rs:

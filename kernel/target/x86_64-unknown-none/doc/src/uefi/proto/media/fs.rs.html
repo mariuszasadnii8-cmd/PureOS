@@ -1,0 +1,55 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `C:\Users\marius\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\uefi-0.34.1\src\proto\media\fs.rs`."><title>fs.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../..\../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../..\../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../..\../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../..\../" data-static-root-path="../../..\../static.files/" data-current-crate="uefi" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.0-nightly (096694416 2026-06-29)" data-channel="nightly" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../..\../static.files/storage-41dd4d93.js"></script><script defer src="../../..\../static.files/src-script-813739b1.js"></script><script defer src="../../..\../src-files.js"></script><script defer src="../../..\../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../..\../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../..\../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../..\../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1><div class="sub-heading">uefi\proto\media/</div>fs.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-2"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="comment">// SPDX-License-Identifier: MIT OR Apache-2.0
+<a href=#2 id=2 data-nosnippet>2</a>
+<a href=#3 id=3 data-nosnippet>3</a></span><span class="doccomment">//! File system support protocols.
+<a href=#4 id=4 data-nosnippet>4</a>
+<a href=#5 id=5 data-nosnippet>5</a></span><span class="kw">use </span><span class="kw">super</span>::file::{Directory, FileHandle};
+<a href=#6 id=6 data-nosnippet>6</a><span class="kw">use </span><span class="kw">crate</span>::proto::unsafe_protocol;
+<a href=#7 id=7 data-nosnippet>7</a><span class="kw">use crate</span>::{<span class="prelude-ty">Result</span>, StatusExt};
+<a href=#8 id=8 data-nosnippet>8</a><span class="kw">use </span>core::ptr;
+<a href=#9 id=9 data-nosnippet>9</a><span class="kw">use </span>uefi_raw::protocol::file_system::SimpleFileSystemProtocol;
+<a href=#10 id=10 data-nosnippet>10</a>
+<a href=#11 id=11 data-nosnippet>11</a><span class="doccomment">/// Allows access to a FAT-12/16/32 file system.
+<a href=#12 id=12 data-nosnippet>12</a>///
+<a href=#13 id=13 data-nosnippet>13</a>/// This interface is implemented by some storage devices
+<a href=#14 id=14 data-nosnippet>14</a>/// to allow file access to the contained file systems.
+<a href=#15 id=15 data-nosnippet>15</a>///
+<a href=#16 id=16 data-nosnippet>16</a>/// # Accessing `SimpleFileSystem` protocol
+<a href=#17 id=17 data-nosnippet>17</a>///
+<a href=#18 id=18 data-nosnippet>18</a>/// Use [`boot::get_image_file_system`] to retrieve the `SimpleFileSystem`
+<a href=#19 id=19 data-nosnippet>19</a>/// protocol associated with a given image handle.
+<a href=#20 id=20 data-nosnippet>20</a>///
+<a href=#21 id=21 data-nosnippet>21</a>/// See the [`boot`] documentation for more details of how to open a protocol.
+<a href=#22 id=22 data-nosnippet>22</a>///
+<a href=#23 id=23 data-nosnippet>23</a>/// [`boot::get_image_file_system`]: crate::boot::get_image_file_system
+<a href=#24 id=24 data-nosnippet>24</a>/// [`boot`]: crate::boot#accessing-protocols
+<a href=#25 id=25 data-nosnippet>25</a></span><span class="attr">#[derive(Debug)]
+<a href=#26 id=26 data-nosnippet>26</a>#[repr(transparent)]
+<a href=#27 id=27 data-nosnippet>27</a>#[unsafe_protocol(SimpleFileSystemProtocol::GUID)]
+<a href=#28 id=28 data-nosnippet>28</a></span><span class="kw">pub struct </span>SimpleFileSystem(SimpleFileSystemProtocol);
+<a href=#29 id=29 data-nosnippet>29</a>
+<a href=#30 id=30 data-nosnippet>30</a><span class="kw">impl </span>SimpleFileSystem {
+<a href=#31 id=31 data-nosnippet>31</a>    <span class="doccomment">/// Open the root directory on a volume.
+<a href=#32 id=32 data-nosnippet>32</a>    ///
+<a href=#33 id=33 data-nosnippet>33</a>    /// # Errors
+<a href=#34 id=34 data-nosnippet>34</a>    ///
+<a href=#35 id=35 data-nosnippet>35</a>    /// See section `EFI_SIMPLE_FILE_SYSTEM_PROTOCOL.OpenVolume()` in the UEFI Specification
+<a href=#36 id=36 data-nosnippet>36</a>    /// for more details.
+<a href=#37 id=37 data-nosnippet>37</a>    ///
+<a href=#38 id=38 data-nosnippet>38</a>    /// If you can't find the function definition, try searching for
+<a href=#39 id=39 data-nosnippet>39</a>    /// `EFI_SIMPLE_FILE SYSTEM_PROTOCOL.OpenVolume()` (this has a space in between FILE and
+<a href=#40 id=40 data-nosnippet>40</a>    /// SYSTEM; it could be a typo in the UEFI spec).
+<a href=#41 id=41 data-nosnippet>41</a>    ///
+<a href=#42 id=42 data-nosnippet>42</a>    /// * [`uefi::Status::UNSUPPORTED`]
+<a href=#43 id=43 data-nosnippet>43</a>    /// * [`uefi::Status::NO_MEDIA`]
+<a href=#44 id=44 data-nosnippet>44</a>    /// * [`uefi::Status::DEVICE_ERROR`]
+<a href=#45 id=45 data-nosnippet>45</a>    /// * [`uefi::Status::VOLUME_CORRUPTED`]
+<a href=#46 id=46 data-nosnippet>46</a>    /// * [`uefi::Status::ACCESS_DENIED`]
+<a href=#47 id=47 data-nosnippet>47</a>    /// * [`uefi::Status::OUT_OF_RESOURCES`]
+<a href=#48 id=48 data-nosnippet>48</a>    /// * [`uefi::Status::MEDIA_CHANGED`]
+<a href=#49 id=49 data-nosnippet>49</a>    </span><span class="kw">pub fn </span>open_volume(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;Directory&gt; {
+<a href=#50 id=50 data-nosnippet>50</a>        <span class="kw">let </span><span class="kw-2">mut </span>ptr = ptr::null_mut();
+<a href=#51 id=51 data-nosnippet>51</a>        <span class="kw">unsafe </span>{ (<span class="self">self</span>.<span class="number">0</span>.open_volume)(<span class="kw-2">&amp;mut </span><span class="self">self</span>.<span class="number">0</span>, <span class="kw-2">&amp;mut </span>ptr) }
+<a href=#52 id=52 data-nosnippet>52</a>            .to_result_with_val(|| <span class="kw">unsafe </span>{ Directory::new(FileHandle::new(ptr.cast())) })
+<a href=#53 id=53 data-nosnippet>53</a>    }
+<a href=#54 id=54 data-nosnippet>54</a>}
+</code></pre></div></section></main></body></html>

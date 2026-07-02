@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["firmware_revision","firmware_vendor","uefi_revision","with_config_table","with_stderr","with_stdin","with_stdout"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ComponentName","LanguageError"],"struct":["ComponentName1","ComponentName2","LanguageIter"]};

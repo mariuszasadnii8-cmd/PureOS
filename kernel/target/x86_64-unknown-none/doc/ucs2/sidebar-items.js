@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Error"],"fn":["decode","decode_with","encode","encode_with"],"macro":[["ucs2_cstr",1]]};

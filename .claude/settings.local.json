@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo --version)",
+      "Bash(rustc --version)",
+      "Bash(rustup target *)",
+      "Bash(cargo build *)",
+      "Read(//c//**)",
+      "Bash(rustup show *)"
+    ]
+  }
+}

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["BootServiceCapability","EventLog","EventLogIter","FfiPcrEvent","PcrEvent","StatusCheck","Tcg","Version"],"type":["Sha1Digest"]};

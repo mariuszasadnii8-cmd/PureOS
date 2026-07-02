@@ -1,0 +1,153 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Rusty wrapper for the Unified Extensible Firmware Interface."><title>uefi - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="uefi" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.0-nightly (096694416 2026-06-29)" data-channel="nightly" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../static.files/storage-41dd4d93.js"></script><script defer src="../crates.js"></script><script defer src="../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-044be391.svg"></head><body class="rustdoc mod crate"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Crate uefi</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../uefi/index.html">uefi</a><span class="version">0.34.1</span></h2></div><div class="sidebar-elems"><ul class="block"><li><a id="all-types" href="all.html">All Items</a></li></ul><section id="rustdoc-toc"><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#minimal-example" title="Minimal Example">Minimal Example</a></li><li><a href="#value-add-and-use-cases" title="Value-add and Use Cases">Value-add and Use Cases</a><ul><li><a href="#example-use-cases" title="Example Use Cases">Example Use Cases</a></li></ul></li><li><a href="#supported-compiler-versions-and-architectures" title="Supported Compiler Versions and Architectures">Supported Compiler Versions and Architectures</a><ul><li><a href="#msrv" title="MSRV">MSRV</a></li></ul></li><li><a href="#apiuser-documentation-documentation-structure-and-other-resources" title="API/User Documentation, Documentation Structure, and other Resources">API/User Documentation, Documentation Structure, and other Resources</a></li><li><a href="#library-structure--tips" title="Library Structure &#38; Tips">Library Structure &amp; Tips</a><ul><li><a href="#uefi-strings" title="UEFI Strings">UEFI Strings</a></li><li><a href="#tables" title="Tables">Tables</a></li><li><a href="#protocols" title="Protocols">Protocols</a></li><li><a href="#optional-cargo-crate-features" title="Optional Cargo crate features">Optional Cargo crate features</a></li></ul></li><li><a href="#discuss-and-contribute" title="Discuss and Contribute">Discuss and Contribute</a></li><li><a href="#comparison-to-other-projects-in-the-ecosystem" title="Comparison to other Projects in the Ecosystem">Comparison to other Projects in the Ecosystem</a><ul><li><a href="#rust-std-implementation" title="Rust `std` implementation">Rust <code>std</code> implementation</a></li><li><a href="#r-efi" title="`r-efi`"><code>r-efi</code></a></li></ul></li><li><a href="#license" title="License">License</a></li><li><a href="#terminology" title="Terminology">Terminology</a></li></ul><h3><a href="#reexports">Crate Items</a></h3><ul class="block"><li><a href="#reexports" title="Re-exports">Re-exports</a></li><li><a href="#modules" title="Modules">Modules</a></li><li><a href="#macros" title="Macros">Macros</a></li><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#traits" title="Traits">Traits</a></li><li><a href="#types" title="Type Aliases">Type Aliases</a></li><li><a href="#attributes" title="Attribute Macros">Attribute Macros</a></li></ul></section><div id="rustdoc-modnav"></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1>Crate <span>uefi</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../src/uefi/lib.rs.html#3-267">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Rusty wrapper for the <a href="https://uefi.org/">Unified Extensible Firmware Interface</a>.</p>
+<p>This crate makes it easy to develop Rust software that leverages <strong>safe</strong>,
+<strong>convenient</strong>, and <strong>performant</strong> abstractions for <a href="https://uefi.org/">UEFI</a> functionality.</p>
+<p>See the <a href="https://rust-osdev.github.io/uefi-rs/HEAD/">Rust UEFI Book</a> for a tutorial, how-tos, and overviews of some
+important UEFI concepts. For more details of UEFI, see the latest <a href="https://uefi.org/specifications">UEFI
+Specification</a>.</p>
+<h2 id="minimal-example"><a class="doc-anchor" href="#minimal-example">§</a>Minimal Example</h2>
+<p>Minimal example for an UEFI application using functionality of the
+<code>uefi</code> crate:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="attr">#![no_main]
+#![no_std]
+
+</span><span class="kw">use </span>uefi::prelude::<span class="kw-2">*</span>;
+
+<span class="attr">#[entry]
+</span><span class="kw">fn </span>main() -&gt; Status {
+    uefi::helpers::init().unwrap();
+
+    Status::SUCCESS
+}</code></pre></div>
+<p>Please find more info in our <a href="https://rust-osdev.github.io/uefi-rs/HEAD/">Rust UEFI Book</a>.</p>
+<h2 id="value-add-and-use-cases"><a class="doc-anchor" href="#value-add-and-use-cases">§</a>Value-add and Use Cases</h2>
+<p><code>uefi</code> supports writing code for both pre- and post-exit boot services
+epochs, but its true strength shines when you create UEFI images that heavily
+interact with UEFI boot services. Still, you have the flexibility to just
+integrate selected types and abstractions into your project, for example to
+parse the UEFI memory map.</p>
+<p><em>Note that for producing UEFI images, you also need to use a corresponding
+<code>uefi</code> compiler target of Rust, such as <code>x86_64-unknown-uefi</code>.</em></p>
+<h3 id="example-use-cases"><a class="doc-anchor" href="#example-use-cases">§</a>Example Use Cases</h3>
+<p>This library significantly simplifies the process of creating <strong>UEFI images</strong>
+by abstracting away much of the UEFI API complexity and by providing
+convenient wrappers. When we mention UEFI images, we are talking about UEFI
+applications, UEFI boot service drivers, and EFI runtime service drivers,
+which typically have the <code>.efi</code> file extension. For instance, an UEFI
+application could be an OS-specific loader, similar to <em>GRUB</em> or <em>Limine</em>.</p>
+<p>Additionally, you can use this crate in non-UEFI images (such as a kernel
+in ELF format) to perform tasks like parsing the UEFI memory map embedded in
+the boot information provided by a bootloader. It also enables access to
+UEFI runtime services from a non-UEFI image kernel.</p>
+<h2 id="supported-compiler-versions-and-architectures"><a class="doc-anchor" href="#supported-compiler-versions-and-architectures">§</a>Supported Compiler Versions and Architectures</h2>
+<p><code>uefi</code> works with stable Rust, but additional nightly-only features are
+gated behind the <code>unstable</code> Cargo feature. Please find more information
+about additional crate features below.</p>
+<p><code>uefi</code> is compatible with all platforms that both the Rust compiler and
+UEFI support, such as <code>i686</code>, <code>x86_64</code>, and <code>aarch64</code>. Please note that we
+can’t test all possible hardware/firmware/platform combinations in CI.</p>
+<h3 id="msrv"><a class="doc-anchor" href="#msrv">§</a>MSRV</h3>
+<p>The minimum supported Rust version is currently 1.81.
+Our policy is to support at least the past two stable releases.</p>
+<h2 id="apiuser-documentation-documentation-structure-and-other-resources"><a class="doc-anchor" href="#apiuser-documentation-documentation-structure-and-other-resources">§</a>API/User Documentation, Documentation Structure, and other Resources</h2>
+<p>Down below, you find typical technical documentation of all types, modules,
+and functions exported by <code>uefi</code>.</p>
+<p>For a TL;DR quick start with an example on how to create your own EFI
+application, please check out <a href="https://github.com/rust-osdev/uefi-rs/tree/main/template">the UEFI application template</a>. The
+<a href="https://rust-osdev.github.io/uefi-rs/HEAD/">Rust UEFI Book</a> is a more beginner-friendly tutorial with How-Tos, and
+overviews of some important UEFI concepts and the abstractions provided by
+this library.</p>
+<p>For more details of UEFI itself, see the latest <a href="https://uefi.org/specifications">UEFI Specification</a>.</p>
+<h2 id="library-structure--tips"><a class="doc-anchor" href="#library-structure--tips">§</a>Library Structure &amp; Tips</h2>
+<p>The top-level module contains some of the most used types and macros,
+including the <a href="data_types/struct.Handle.html" title="struct uefi::data_types::Handle"><code>Handle</code></a> and <a href="type.Result.html" title="type uefi::Result"><code>Result</code></a> types, the <a href="data_types/struct.CStr16.html" title="struct uefi::data_types::CStr16"><code>CStr16</code></a> and
+[<code>CString16</code>] types for working with UCS-2 strings, and the <a href="attr.entry.html" title="attr uefi::entry"><code>entry</code></a> and
+<a href="macro.guid.html" title="macro uefi::guid"><code>guid</code></a> macros.</p>
+<h3 id="uefi-strings"><a class="doc-anchor" href="#uefi-strings">§</a>UEFI Strings</h3>
+<p>Rust string literals are UTF-8 encoded and thus, not compatible with most
+UEFI interfaces. We provide <a href="data_types/struct.CStr16.html" title="struct uefi::data_types::CStr16"><code>CStr16</code></a> and [<code>CString16</code>] for proper working
+with UCS-2 strings, including various transformation functions from standard
+Rust strings. You can use <a href="macro.cstr16.html" title="macro uefi::cstr16"><code>ctr16!</code></a> to create UCS-2 string literals at
+compile time.</p>
+<h3 id="tables"><a class="doc-anchor" href="#tables">§</a>Tables</h3>
+<p>Most UEFI functionality comes from the system, boot, and runtime
+tables. These can be accessed via the <a href="system/index.html" title="mod uefi::system"><code>system</code></a>, <a href="boot/index.html" title="mod uefi::boot"><code>boot</code></a>, and <a href="runtime/index.html" title="mod uefi::runtime"><code>runtime</code></a>
+modules.</p>
+<h3 id="protocols"><a class="doc-anchor" href="#protocols">§</a>Protocols</h3>
+<p>When boot services are active, most functionality is provided via UEFI
+protocols. Protocols provide operations such as reading and writing files,
+drawing to the screen, sending and receiving network requests, and much
+more. The list of protocols that are actually available when running an
+application depends on the device. For example, a PC with no network card
+may not provide network protocols.</p>
+<p>See the <a href="boot/index.html" title="mod uefi::boot"><code>boot</code></a> documentation for details of how to open a
+protocol, and see the <a href="proto/index.html" title="mod uefi::proto"><code>proto</code></a> module for protocol implementations. New
+protocols can be defined with the <a href="proto/attr.unsafe_protocol.html" title="attr uefi::proto::unsafe_protocol"><code>unsafe_protocol</code></a> macro.</p>
+<h3 id="optional-cargo-crate-features"><a class="doc-anchor" href="#optional-cargo-crate-features">§</a>Optional Cargo crate features</h3>
+<ul>
+<li><code>alloc</code>: Enable functionality requiring the [<code>alloc</code>] crate from
+the Rust standard library. For example, methods that return a
+<code>Vec</code> rather than filling a statically-sized array. This requires
+a global allocator; you can use the <code>global_allocator</code> feature or
+provide your own. This is independent of internal direct usages of the
+UEFI boot service allocator which may happen anyway, where necessary.</li>
+<li><code>global_allocator</code>: Set <a href="allocator/struct.Allocator.html" title="struct uefi::allocator::Allocator"><code>allocator::Allocator</code></a> as the global Rust
+allocator. This is a simple allocator that relies on the UEFI pool
+allocator. You can choose to provide your own allocator instead of
+using this feature, or no allocator at all if you don’t need to
+dynamically allocate any memory.</li>
+<li><code>logger</code>: Logging implementation for the standard <a href="../log/index.html" title="mod log"><code>log</code></a> crate
+that prints output to the UEFI console. No buffering is done; this
+is not a high-performance logger.</li>
+<li><code>panic_handler</code>: Add a default panic handler that logs to <code>stdout</code>.</li>
+<li><code>unstable</code>: Enable functionality that depends on <a href="https://doc.rust-lang.org/unstable-book/">unstable
+features</a> in the nightly compiler.
+As example, in conjunction with the <code>alloc</code>-feature, this gate allows
+the <code>allocator_api</code> on certain functions.</li>
+<li><code>qemu</code>: Enable some code paths to adapt their execution when executed
+in QEMU, such as using the special <code>qemu-exit</code> device when the panic
+handler is called.</li>
+</ul>
+<p>Some of these features, such as the <code>logger</code> or <code>panic_handler</code> features,
+only unfold their potential when you invoke <code>uefi::helpers::init</code> as soon
+as possible in your application.</p>
+<h2 id="discuss-and-contribute"><a class="doc-anchor" href="#discuss-and-contribute">§</a>Discuss and Contribute</h2>
+<p>For general discussions, feel free to join us in our <a href="https://rust-osdev.zulipchat.com">Zulip</a> and ask
+your questions there.</p>
+<p>Further, you can submit bugs and also ask questions in our <a href="https://github.com/rust-osdev/uefi-rs/issues">issue tracker</a>.
+Contributions in the form of a PR are also highly welcome. Check our
+<a href="https://github.com/rust-osdev/uefi-rs/blob/main/CONTRIBUTING.md">contributing guide</a> for details.</p>
+<h2 id="comparison-to-other-projects-in-the-ecosystem"><a class="doc-anchor" href="#comparison-to-other-projects-in-the-ecosystem">§</a>Comparison to other Projects in the Ecosystem</h2><h3 id="rust-std-implementation"><a class="doc-anchor" href="#rust-std-implementation">§</a>Rust <code>std</code> implementation</h3>
+<p>There is an ongoing effort for a <a href="https://doc.rust-lang.org/nightly/rustc/platform-support/unknown-uefi.html"><code>std</code> implementation</a> of
+the Rust standard library, which allows you to write UEFI programs that look
+very similar to normal Rust programs running on top of an OS.</p>
+<p>It is still under development. You can track the progress in the
+corresponding <a href="https://github.com/rust-lang/rust/issues/100499">tracking issue</a>.</p>
+<p>Using the <code>std</code> implementation simplifies the overall process of producing
+the binary. For example, our [<code>#[entry]</code>][entry-macro] macro won’t be
+required any longer. As the <code>std</code> implementation evolves over time, you’ll
+need fewer and fewer abstractions of this crate. For everything not covered
+by the <code>std</code> implementation, you can obtain relevant structures to work with
+our crate via:</p>
+<ul>
+<li><code>std::os::uefi::env::boot_services()</code></li>
+<li><code>std::os::uefi::env::get_system_handle()</code></li>
+<li><code>std::os::uefi::env::get_system_table()</code></li>
+</ul>
+<h3 id="r-efi"><a class="doc-anchor" href="#r-efi">§</a><code>r-efi</code></h3>
+<p><a href="https://crates.io/crates/r-efi"><code>r-efi</code></a> provides Raw UEFI bindings without high-level convenience similar
+to our <code>uefi-raw</code> crate, which is part of this  project, but more
+feature-complete. It targets a lower-level than our <code>uefi</code> crate does.</p>
+<h2 id="license"><a class="doc-anchor" href="#license">§</a>License</h2><!-- Keep in Sync with README! -->
+<p>Licensed under either of <a href="https://github.com/rust-osdev/uefi-rs/blob/main/uefi/LICENSE-APACHE">Apache License, Version 2.0</a> or
+<a href="https://github.com/rust-osdev/uefi-rs/blob/main/uefi/LICENSE-MIT">MIT license</a> at your option.</p>
+<h2 id="terminology"><a class="doc-anchor" href="#terminology">§</a>Terminology</h2>
+<p>Both “EFI” and “UEFI” can be used interchangeably, such as “UEFI image” or
+“EFI image”. We prefer “UEFI” in our crate and its documentation.</p>
+</div></details><h2 id="reexports" class="section-header">Re-exports<a href="#reexports" class="anchor">§</a></h2><dl class="item-table reexports"><dt id="reexport.CStr16"><code>pub use data_types::<a class="struct" href="data_types/struct.CStr16.html" title="struct uefi::data_types::CStr16">CStr16</a>;</code></dt><dt id="reexport.CStr8"><code>pub use data_types::<a class="struct" href="data_types/struct.CStr8.html" title="struct uefi::data_types::CStr8">CStr8</a>;</code></dt><dt id="reexport.Char16"><code>pub use data_types::<a class="struct" href="data_types/chars/struct.Char16.html" title="struct uefi::data_types::chars::Char16">Char16</a>;</code></dt><dt id="reexport.Char8"><code>pub use data_types::<a class="struct" href="data_types/chars/struct.Char8.html" title="struct uefi::data_types::chars::Char8">Char8</a>;</code></dt><dt id="reexport.Event"><code>pub use data_types::<a class="struct" href="data_types/struct.Event.html" title="struct uefi::data_types::Event">Event</a>;</code></dt><dt id="reexport.Handle"><code>pub use data_types::<a class="struct" href="data_types/struct.Handle.html" title="struct uefi::data_types::Handle">Handle</a>;</code></dt><dt id="reexport.Identify"><code>pub use data_types::<a class="trait" href="data_types/trait.Identify.html" title="trait uefi::data_types::Identify">Identify</a>;</code></dt></dl><h2 id="modules" class="section-header">Modules<a href="#modules" class="anchor">§</a></h2><dl class="item-table"><dt><a class="mod" href="allocator/index.html" title="mod uefi::allocator">allocator</a></dt><dd>This module implements Rust’s global allocator interface using UEFI’s memory allocation functions.</dd><dt><a class="mod" href="boot/index.html" title="mod uefi::boot">boot</a></dt><dd>UEFI boot services.</dd><dt><a class="mod" href="data_types/index.html" title="mod uefi::data_types">data_<wbr>types</a></dt><dd>Data type definitions</dd><dt><a class="mod" href="helpers/index.html" title="mod uefi::helpers">helpers</a></dt><dd>This module provides miscellaneous opinionated but optional helpers to
+better integrate your application with the Rust runtime and the Rust
+ecosystem.</dd><dt><a class="mod" href="mem/index.html" title="mod uefi::mem">mem</a></dt><dd>Types, functions, traits, and other helpers to work with memory in UEFI
+libraries and applications.</dd><dt><a class="mod" href="prelude/index.html" title="mod uefi::prelude">prelude</a></dt><dd>This module is used to simplify importing the most common UEFI types.</dd><dt><a class="mod" href="proto/index.html" title="mod uefi::proto">proto</a></dt><dd>Protocol definitions.</dd><dt><a class="mod" href="runtime/index.html" title="mod uefi::runtime">runtime</a></dt><dd>UEFI runtime services.</dd><dt><a class="mod" href="system/index.html" title="mod uefi::system">system</a></dt><dd>Functions for accessing fields of the system table.</dd><dt><a class="mod" href="table/index.html" title="mod uefi::table">table</a></dt><dd>Standard UEFI tables.</dd></dl><h2 id="macros" class="section-header">Macros<a href="#macros" class="anchor">§</a></h2><dl class="item-table"><dt><a class="macro" href="macro.cstr8.html" title="macro uefi::cstr8">cstr8</a></dt><dd>Encode a string literal as a <a href="data_types/struct.CStr8.html" title="struct uefi::data_types::CStr8"><code>&amp;CStr8</code></a>.</dd><dt><a class="macro" href="macro.cstr16.html" title="macro uefi::cstr16">cstr16</a></dt><dd>Encode a string literal as a <a href="data_types/struct.CStr16.html" title="struct uefi::data_types::CStr16"><code>&amp;CStr16</code></a>.</dd><dt><a class="macro" href="macro.guid.html" title="macro uefi::guid">guid</a></dt><dd>Create a <a href="struct.Guid.html" title="struct uefi::Guid"><code>Guid</code></a> from a string at compile time.</dd><dt><a class="macro" href="macro.opaque_type.html" title="macro uefi::opaque_type">opaque_<wbr>type</a></dt><dd>Create an opaque struct suitable for use as an FFI pointer.</dd><dt><a class="macro" href="macro.print.html" title="macro uefi::print">print</a></dt><dd>Prints to the standard output of the UEFI boot service console.</dd><dt><a class="macro" href="macro.println.html" title="macro uefi::println">println</a></dt><dd>Prints to the standard output of the UEFI boot service console, but with a
+newline.</dd></dl><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.Error.html" title="struct uefi::Error">Error</a></dt><dd>An UEFI-related error with optionally additional payload data. The error
+kind is encoded in the <code>status</code> field (see <a href="struct.Status.html" title="struct uefi::Status"><code>Status</code></a>). Additional payload
+may be inside the <code>data</code> field.</dd><dt><a class="struct" href="struct.Guid.html" title="struct uefi::Guid">Guid</a></dt><dd>Globally-unique identifier.</dd><dt><a class="struct" href="struct.Status.html" title="struct uefi::Status">Status</a></dt><dd>UEFI uses status codes in order to report successes, errors, and warnings.</dd></dl><h2 id="traits" class="section-header">Traits<a href="#traits" class="anchor">§</a></h2><dl class="item-table"><dt><a class="trait" href="trait.ResultExt.html" title="trait uefi::ResultExt">Result<wbr>Ext</a></dt><dd>Extension trait which provides some convenience methods for <a href="type.Result.html" title="type uefi::Result"><code>Result</code></a>.</dd><dt><a class="trait" href="trait.StatusExt.html" title="trait uefi::StatusExt">Status<wbr>Ext</a></dt><dd>Extension trait which provides some convenience methods for <a href="struct.Status.html" title="struct uefi::Status"><code>Status</code></a>.</dd></dl><h2 id="types" class="section-header">Type Aliases<a href="#types" class="anchor">§</a></h2><dl class="item-table"><dt><a class="type" href="type.Result.html" title="type uefi::Result">Result</a></dt><dd>Return type of most UEFI functions. Both success and error payloads are optional.</dd></dl><h2 id="attributes" class="section-header">Attribute Macros<a href="#attributes" class="anchor">§</a></h2><dl class="item-table"><dt><a class="attr" href="attr.entry.html" title="attr uefi::entry">entry</a></dt><dd>Custom attribute for a UEFI executable entry point.</dd></dl></section></div></main></body></html>

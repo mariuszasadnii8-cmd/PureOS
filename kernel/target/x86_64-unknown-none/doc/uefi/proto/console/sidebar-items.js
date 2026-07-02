@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["gop","pointer","serial","text"]};

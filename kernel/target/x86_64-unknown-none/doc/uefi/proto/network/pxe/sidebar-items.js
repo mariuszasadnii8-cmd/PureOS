@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["BootstrapType"],"struct":["ArpEntry","BaseCode","DhcpV4Flags","DhcpV4Packet","DhcpV6Packet","DiscoverInfo","FfiDiscoverInfo","IcmpError","IcmpErrorEcho","IpFilter","IpFilters","Mode","MtftpFileInfo","MtftpInfo","ReadDirParseError","RouteEntry","Server","TftpError","TftpFileInfo","UdpOpFlags"],"union":["IcmpErrorUnion","Packet"]};

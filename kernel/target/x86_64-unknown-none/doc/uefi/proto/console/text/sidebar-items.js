@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Color","Key"],"struct":["Input","Output","OutputMode","ScanCode"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["NUL_16","NUL_8"],"struct":["Char16","Char8","CharConversionError"]};

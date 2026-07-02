@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["GptPartitionAttributes","GptPartitionEntry","GptPartitionType","MbrOsType","MbrPartitionRecord","PartitionInfo","PartitionInfoRevision","PartitionType"]};

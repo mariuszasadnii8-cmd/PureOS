@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["AllowShortcuts","DevicePathFromText","DevicePathToText","DisplayOnly","PoolDevicePath","PoolDevicePathNode","PoolString"]};

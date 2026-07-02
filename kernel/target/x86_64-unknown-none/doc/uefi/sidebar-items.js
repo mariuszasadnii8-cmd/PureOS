@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"attr":["entry"],"macro":[["cstr16",1],["cstr8",1],["guid",1],["opaque_type",1],["print",1],["println",1]],"mod":["allocator","boot","data_types","helpers","mem","prelude","proto","runtime","system","table"],"struct":["Error","Guid","Status"],"trait":["ResultExt","StatusExt"],"type":["Result"]};

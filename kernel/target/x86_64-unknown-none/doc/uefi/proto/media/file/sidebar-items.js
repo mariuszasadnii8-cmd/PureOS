@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["FileInfoCreationError","FileMode","FileType"],"struct":["Directory","FileAttribute","FileHandle","FileInfo","FileSystemInfo","FileSystemVolumeLabel","RegularFile"],"trait":["File","FileProtocolInfo","FromUefi"]};

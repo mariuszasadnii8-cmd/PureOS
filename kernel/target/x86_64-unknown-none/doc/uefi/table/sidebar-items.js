@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["set_system_table","system_table_raw"],"mod":["cfg"],"struct":["Header","Revision"],"trait":["Table"]};
