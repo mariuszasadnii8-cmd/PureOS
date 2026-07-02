@@ -7,9 +7,6 @@
 const ST_OFF_CON_OUT: u64 = 64;
 const ST_OFF_RUNTIME: u64 = 80;
 
-// EFI_SIMPLE_TEXT_INPUT_PROTOCOL
-const STIP_OFF_READ_KEY: u64 = 8;
-
 // EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL
 const STOP_OFF_OUTPUT_STRING: u64 = 8;
 const STOP_OFF_CLEAR_SCREEN: u64 = 48;
@@ -74,38 +71,10 @@ pub fn clear_screen() {
     }
 }
 
-// ===================================================================
-// Simple Text Input (ConIn)
-// ===================================================================
-
-#[repr(C)]
-struct EfiInputKey { scan_code: u16, unicode_char: u16 }
-
-/// Прочитать нажатую клавишу (неблокирующий).
-pub fn read_key() -> Option<u8> {
-    if !is_ready() { return None; }
-
-    let con_in = unsafe { UEFI_CON_IN };
-    let read_fn = unsafe { *((con_in + STIP_OFF_READ_KEY) as *const u64) };
-    if read_fn == 0 { return None; }
-
-    let mut key = EfiInputKey { scan_code: 0, unicode_char: 0 };
-    let status: usize = unsafe {
-        let f: extern "win64" fn(u64, *mut EfiInputKey) -> usize = core::mem::transmute(read_fn);
-        f(con_in, &mut key)
-    };
-
-    if status != 0 { return None; }
-
-    match key.unicode_char {
-        0 => None,
-        0x08 | 0x7F => Some(0x7F),
-        0x0D | 0x0A => Some(b'\n'),
-        0x09 => Some(b'\t'),
-        0x1B | 0x20..=0x7E => Some(key.unicode_char as u8),
-        _ => None,
-    }
-}
+// Примечание: ввод клавиатуры больше НЕ идёт через UEFI ConIn — после подмены
+// GDT/IDT вызов firmware даёт #GP. Клавиатура читается напрямую с PS/2 в
+// `keyboard.rs`. Поле `con_in` из PureBootInfo здесь сохраняется, но не
+// используется для чтения клавиш.
 
 // ===================================================================
 // Runtime Services — reboot, shutdown

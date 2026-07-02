@@ -261,6 +261,9 @@ pub unsafe extern "C" fn sys_call_handler(
         29 => sys_set_cursor(arg1 as u32, arg2 as u32),
         30 => sys_color(arg1 as u32, arg2 as u32),
         31 => sys_reboot(),
+        // 32: print_num(value, newline) — вывод целого; rsi!=0 добавляет '\n'.
+        // Нужен скомпилированным программам (barrelc): числа в ring3 без itoa.
+        32 => sys_print_num(arg1, arg2),
         _ => ERR_INVALID_SYSCALL,
     }
 }
@@ -496,6 +499,20 @@ pub unsafe fn run_scheduler() -> ! {
     }
 }
 
+/// Запустить процесс `slot` из текущего (обычно shell, процесс 0) и вернуться,
+/// когда тот отдаст CPU или завершится (`exit` → `block_current` → назад к нам).
+/// Используется shell'ом для запуска скомпилированной программы синхронно.
+pub unsafe fn run_slot(slot: usize) {
+    let current = CURRENT_PROCESS_ID as usize;
+    if slot == current || slot >= MAX_PROCESSES {
+        return;
+    }
+    if !matches!(PROCESS_TABLE[slot].state, ProcessState::Runnable) {
+        return;
+    }
+    switch_context(current, slot);
+}
+
 pub(crate) unsafe fn switch_context(prev: usize, next: usize) {
     if prev == next {
         return;
@@ -683,6 +700,15 @@ unsafe fn sys_println(buf: *const u8, len: usize) -> i64 {
     let n = sys_print(buf, len);
     crate::terminal::putchar(b'\n');
     n
+}
+
+/// 32: print_num(value, newline) — напечатать целое; newline!=0 → ещё '\n'.
+unsafe fn sys_print_num(value: u64, newline: u64) -> i64 {
+    crate::terminal::write_num(value);
+    if newline != 0 {
+        crate::terminal::putchar(b'\n');
+    }
+    0
 }
 
 /// 26: input(buf, maxlen) — прочитать строку с клавиатуры (блокирующая)

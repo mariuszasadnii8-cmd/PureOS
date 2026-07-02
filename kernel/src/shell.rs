@@ -2,8 +2,8 @@
 //!
 //! Вывод через UEFI ConOut (терминал). Работает в процессе 0.
 
+use crate::commands;
 use crate::keyboard;
-use crate::syscall;
 use crate::terminal;
 
 const CMD_BUF_SIZE: usize = 512;
@@ -23,22 +23,28 @@ pub unsafe fn run() -> ! {
     CMD_LEN = 0;
     show_prompt();
 
+    // Главный REPL-цикл: опрашиваем UEFI-клавиатуру, скармливаем символы
+    // обработчику, который редактирует CMD_BUF и по Enter выполняет команду.
+    // Прерывания выключены (§5), поэтому это кооперативный polling, а не сон.
     loop {
-        // Безопасный idle-путь: показываем промпт и удерживаем экран живым,
-        // не заходя в нестабильный UEFI ConIn-цикл на раннем старте.
-        core::arch::asm!("hlt", options(nomem, nostack, preserves_flags));
+        keyboard::poll();
+        while let Some(ch) = keyboard::read_key() {
+            handle_key(ch);
+        }
+        // Короткая пауза, чтобы не жечь CPU в плотном busy-loop.
+        core::arch::asm!("pause", options(nomem, nostack, preserves_flags));
     }
 }
 
 unsafe fn show_banner() {
     terminal::write(b"\n");
     terminal::write(b"  +----------------------------------------------------------+\n");
-    terminal::write(b"  |  PUREOS  v0.3  [UEFI Terminal]                          |\n");
+    terminal::write(b"  |  PUREOS  v0.3 		                           |\n");
     terminal::write(b"  |  Type 'help' for commands  |  'barrel' for Barrel REPL   |\n");
     terminal::write(b"  +----------------------------------------------------------+\n");
     terminal::write(b"\n");
     // Serial backup
-    crate::console::serial_puts(b"\n=== PUREOS v0.3 ===\n");
+    crate::console::serial_puts(b"\n PUREOS v0.3 \n");
 }
 
 unsafe fn show_prompt() {
@@ -114,6 +120,10 @@ unsafe fn execute_command() {
 
     let args = core::slice::from_raw_parts(ptr.add(arg_start), CMD_LEN - arg_start);
 
+    // Add to history
+    let cmd_slice = core::slice::from_raw_parts(ptr, CMD_LEN);
+    commands::add_to_history(cmd_slice, CMD_LEN);
+
     let is = |s: &[u8]| -> bool {
         if cmd_end != s.len() { return false; }
         for i in 0..cmd_end {
@@ -122,18 +132,55 @@ unsafe fn execute_command() {
         true
     };
 
-    if is(b"help") { cmd_help(); }
-    else if is(b"clear") { cmd_clear(); }
+    // File system commands
+    if is(b"help") { commands::cmd_help(); }
+    else if is(b"pwd") { commands::cmd_pwd(); }
+    else if is(b"ls") { commands::cmd_ls(args); }
+    else if is(b"cd") { commands::cmd_cd(args); }
+    else if is(b"mkdir") { commands::cmd_mkdir(args); }
+    else if is(b"touch") { commands::cmd_touch(args); }
+    else if is(b"rm") { commands::cmd_rm(args); }
+    else if is(b"cp") { commands::cmd_cp(args); }
+    else if is(b"mv") { commands::cmd_mv(args); }
+    // Text commands
+    else if is(b"cat") { commands::cmd_cat(args); }
+    else if is(b"head") { commands::cmd_head(args); }
+    else if is(b"tail") { commands::cmd_tail(args); }
+    else if is(b"grep") { commands::cmd_grep(args); }
+    // System commands
+    else if is(b"uname") { commands::cmd_uname(args); }
+    else if is(b"uptime") { commands::cmd_uptime(); }
+    else if is(b"whoami") { commands::cmd_whoami(); }
+    else if is(b"id") { commands::cmd_id(); }
     else if is(b"ps") { cmd_ps(); }
+    else if is(b"kill") { commands::cmd_kill(args); }
+    else if is(b"df") { commands::cmd_df(args); }
+    else if is(b"du") { commands::cmd_du(args); }
+    else if is(b"free") { commands::cmd_free(args); }
+    // Network commands
+    else if is(b"ping") { commands::cmd_ping(args); }
+    else if is(b"ifconfig") { commands::cmd_ifconfig(); }
+    else if is(b"netstat") { commands::cmd_netstat(args); }
+    // Permission commands
+    else if is(b"sudo") { commands::cmd_sudo(args); }
+    else if is(b"chmod") { commands::cmd_chmod(args); }
+    else if is(b"chown") { commands::cmd_chown(args); }
+    // Utility commands
+    else if is(b"history") { commands::cmd_history(); }
+    else if is(b"clear") { commands::cmd_clear(); }
+    else if is(b"echo") { commands::cmd_echo(args); }
+    else if is(b"exit") { commands::cmd_exit(); }
+    else if is(b"man") { commands::cmd_man(args); }
+    // PureOS specific commands
     else if is(b"info") { cmd_info(); }
     else if is(b"ver") { cmd_version(); }
-    else if is(b"echo") { cmd_echo(args); }
     else if is(b"demo") { cmd_demo(); }
     else if is(b"hex") { cmd_hex(args); }
     else if is(b"barrel") { cmd_barrel(); }
     else if is(b"reboot") { cmd_reboot(); }
     else if is(b"shutdown") { cmd_shutdown(); }
     else if is(b"exec") { cmd_exec(args); }
+    else if is(b"cc") { cmd_cc(args); }
     else { unknown_command(); }
 }
 
@@ -143,6 +190,7 @@ unsafe fn cmd_help() {
     terminal::write(b"Built-in commands: help clear ps info ver echo demo hex\n");
     terminal::write(b"  barrel  - enter Barrel scripting REPL\n");
     terminal::write(b"  exec    - exec ELF from memory: exec <hex_addr> <hex_size>\n");
+    terminal::write(b"  cc      - compile Barrel to native ring3 code: cc <source>\n");
     terminal::write(b"  reboot  - reboot system (UEFI)\n");
     terminal::write(b"  shutdown- shutdown system (UEFI)\n");
 }
@@ -231,6 +279,22 @@ unsafe fn cmd_exec(args: &[u8]) {
     } else {
         terminal::write(b"exec failed: "); terminal::write_num((-pid) as u64);
         terminal::write(b"\n");
+    }
+}
+
+unsafe fn cmd_cc(src: &[u8]) {
+    if src.is_empty() {
+        terminal::write(b"usage: cc <barrel source>\n");
+        terminal::write(b"  example: cc let x=7; let y=6; println x*y;\n");
+        return;
+    }
+    let pid = crate::barrelc::compile_and_run(src.as_ptr(), src.len());
+    if pid < 0 {
+        terminal::write(b"cc error "); terminal::write_num((-pid) as u64);
+        terminal::write(b"\n");
+    } else {
+        terminal::write(b"[cc] ring3 pid "); terminal::write_num(pid as u64);
+        terminal::write(b" done\n");
     }
 }
 

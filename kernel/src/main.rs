@@ -6,6 +6,8 @@ use core::panic::PanicInfo;
 use core::ptr::addr_of_mut;
 
 mod barrel;
+mod barrelc;
+mod commands;
 mod console;
 mod context;
 mod cpu;
@@ -83,9 +85,9 @@ pub extern "win64" fn kernel_main(boot_info: *const PureBootInfo) -> ! {
         console::serial_puts(b"[KERNEL] boot-info ptr=0x");
         console::serial_hex(boot_info as u64);
         console::serial_puts(b" first=0x");
-        console::serial_hex(unsafe { core::ptr::read_unaligned(boot_info as *const u64) });
+        console::serial_hex(core::ptr::read_unaligned(boot_info as *const u64));
         console::serial_puts(b" second=0x");
-        console::serial_hex(unsafe { core::ptr::read_unaligned((boot_info as *const u8).add(8) as *const u64) });
+        console::serial_hex(core::ptr::read_unaligned((boot_info as *const u8).add(8) as *const u64));
         console::serial_puts(b"\n");
         console::serial_puts(b"[KERNEL] boot-info magic=0x");
         console::serial_hex(info.magic);

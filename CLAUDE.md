@@ -25,10 +25,11 @@
 | Ядро не имеет кучи (Zero-Alloc) | всё ядро | `#![no_std]`, `panic=abort`, ни одного аллокатора. Всё состояние — `static mut` фиксированного размера |
 | Статичное состояние | `kernel/src/syscall.rs` | `PROCESS_TABLE`, `PROCESS_PML4`, `KERNEL_STACKS`, `USER_STACKS` — фиксированные массивы на `MAX_PROCESSES = 64` |
 | Эфемерные слои процессов | `kernel/src/ephemeral.rs` + `syscall.rs` + `frame.rs` | Каждому процессу — окно `EPHEMERAL_BASE(16 TiB) + i*16MiB`. `memory_allocate` берёт физфрейм из `frame::alloc_frame` и мапит его в PML4 процесса (U/S+RW) через `cpu::map_page`. Bump, **без освобождения** — слой «испаряется» на `exit` |
-| Терминал (чёрный экран) | `kernel/src/terminal.rs` + `keyboard.rs` | После загрузки — scrolling-терминал на весь фреймбуфер. **UEFI Simple Text Input** вместо PS/2 |
+| Терминал (чёрный экран) | `kernel/src/terminal.rs` + `keyboard.rs` | После загрузки — scrolling-терминал на весь фреймбуфер. Ввод — **прямой опрос PS/2 (i8042, порты 0x60/0x64)**, scancode set 1 → ASCII |
 | Встроенная оболочка | `kernel/src/shell.rs` | Команды: `help`, `clear`, `ps`, `info`, `exec`, `echo`, `demo`, `hex`, `barrel`, `reboot`, `shutdown`. Работает в процессе 0 как shell + планировщик |
 | Скриптовый язык Barrel | `kernel/src/barrel.rs` | Встроенный интерпретатор: tokenizer → AST → executor. REPL через команду `barrel`. Zero-Alloc |
-| UEFI-обёртки | `kernel/src/uefi.rs` | `extern "win64"` вызовы UEFI-протоколов: Simple Text Input, ConOut, Runtime Services (ResetSystem), Boot Services (Stall). ExitBootServices НЕ вызывается |
+| Компилятор Barrel (barrelc) | `kernel/src/barrelc.rs` | Однопроходный компилятор Barrel → нативный x86_64. Оборачивает машкод в ELF64 (в статич. `ELF_BUF`) и запускает как **ring3-процесс** через `elf::exec`. Команда `cc <src>`. Код позиционно-независим (rel32, [rbp-off], syscall). Вывод чисел — syscall 32 |
+| UEFI-обёртки | `kernel/src/uefi.rs` | `extern "win64"` вызовы UEFI-протоколов: ConOut, Runtime Services (ResetSystem). ExitBootServices НЕ вызывается. ⚠ Любой вызов firmware ПОСЛЕ подмены GDT/IDT даёт #GP (firmware грузит свой сегментный селектор, которого нет в нашей GDT) — поэтому клавиатура НЕ через ConIn, а прямой PS/2. `reboot`/`shutdown` через Runtime Services тоже под этим риском |
 | Магические syscall (24-31) | `kernel/src/syscall.rs` | High-level: `print`, `println`, `input`, `ticks`, `cls`, `set_cursor`, `color`, `reboot` |
 | Файловые syscall (16-23) | `kernel/src/syscall.rs` | `write`/`read`/`open`/`close`/`lseek`/`stat`/`dup`/`fcntl`. MVP: `write`→терминал, `read`→клавиатура |
 | Физический пул RAM | `frame.rs` ← `PureBootInfo.heap_base/size` | Загрузчик резервирует 64 MiB через UEFI `AllocatePages`; ядро раздаёт занулённые фреймы bump-аллокатором |
@@ -112,7 +113,8 @@
 7 send_ipc · 8 receive_ipc · 9 reply_ipc · 10 share_memory* · 11 pci* ·
 12 map_phys* · 13 shared_buffer* · 14 wait_vblank* · **15 exec_elf** ·
 16 write · 17 read · 18 open · 19 close · 20 lseek* · 21 stat* · 22 dup · 23 fcntl* ·
-**24 print · 25 println · 26 input · 27 ticks · 28 cls · 29 set_cursor · 30 color · 31 reboot**
+**24 print · 25 println · 26 input · 27 ticks · 28 cls · 29 set_cursor · 30 color · 31 reboot ·
+32 print_num** (rdi=value, rsi!=0 → +'\n'; для скомпилированных barrelc-программ).
 (`*` = `ERR_UNSUPPORTED`, ждут frame-allocator/драйверов).
 Коды ошибок: `-1` invalid syscall, `-2` invalid proc, `-3` no capacity,
 `-4` invalid ptr, `-5` OOM, `-38` unsupported.
@@ -136,9 +138,10 @@ IPC — синхронное рандеву без буфера в ядре: sen
 Поддерживает: переменные, арифметику, сравнения, `print`/`println`/`input`,
 `if`/`else`, `loop`, `while`, `break`.
 
-**UEFI-only**: ядро использует UEFI Simple Text Input вместо PS/2, UEFI ConOut
-вместо COM-порта, UEFI Runtime Services для reboot/shutdown. ExitBootServices
-НЕ вызывается — UEFI протоколы доступны весь рантайм.
+**Ввод/вывод**: клавиатура — прямой опрос PS/2 (i8042), т.к. UEFI ConIn после
+подмены GDT/IDT падает с #GP. Вывод — COM-порт + фреймбуфер (терминал). UEFI
+ConOut/Runtime Services (reboot/shutdown) ещё зовутся, но под тем же риском #GP.
+ExitBootServices НЕ вызывается.
 
 ## 7. Статус и следующие вехи
 
@@ -149,8 +152,9 @@ ring0↔ring3 (`syscall/sysret`), Round-Robin с честным переключ
 `memory_allocate`). ⚡ Фреймбуфер + консоль: загрузочный экран с кристаллом,
 анимация в планировщике. **ELF-загрузчик** (syscall 15, `elf.rs`) — FFI-мост
 для C/Kotlin/Zig/Rust-бинарников. **Терминал** (`terminal.rs`) — чёрный экран,
-прокрутка, палитра. **UEFI Simple Text Input** (`keyboard.rs`) — клавиатура
-через UEFI-протокол, без PS/2. **UEFI-обёртки** (`uefi.rs`) — ConOut для debug,
+прокрутка, палитра. **PS/2-клавиатура** (`keyboard.rs`) — прямой опрос i8042
+(порты 0x60/0x64), scancode set 1 → ASCII с Shift; UEFI ConIn выпилен (давал #GP
+после подмены GDT/IDT). **UEFI-обёртки** (`uefi.rs`) — ConOut для debug,
 Runtime Services для reboot/shutdown. **Оболочка** (`shell.rs`) — встроенные
 команды + планировщик + Barrel REPL. **Файловые syscalls** (16-23) —
 write/read/open/close/dup. **Магические syscall** (24-31) — print/println/input/
