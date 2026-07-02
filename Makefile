@@ -61,3 +61,7 @@ clean:
 
 distclean: clean
 	Remove-Item -Force 'uefi_boot/Cargo.lock','kernel/Cargo.lock' -ErrorAction SilentlyContinue
+flash: esp
+	Write-Host "-> Copying PureOS files to USB drive..."
+	Copy-Item -Force -Recurse '$(ESP_DIR)/*' 'E:/'
+	Write-Host "-> Done! You can now unplug your USB drive."

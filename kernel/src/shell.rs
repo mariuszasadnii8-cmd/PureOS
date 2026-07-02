@@ -171,6 +171,8 @@ unsafe fn execute_command() {
     else if is(b"echo") { commands::cmd_echo(args); }
     else if is(b"exit") { commands::cmd_exit(); }
     else if is(b"man") { commands::cmd_man(args); }
+    else if is(b"config") { commands::cmd_config(args); }
+    else if is(b"install") { cmd_install(); }
     // PureOS specific commands
     else if is(b"info") { cmd_info(); }
     else if is(b"ver") { cmd_version(); }
@@ -321,7 +323,7 @@ unsafe fn cmd_hex(args: &[u8]) {
     }
 }
 
-fn parse_hex(s: &[u8]) -> u64 {
+pub(crate) fn parse_hex(s: &[u8]) -> u64 {
     if s.is_empty() { return 0; }
     let s = if s.len() > 2 && &s[..2] == b"0x" { &s[2..] } else { s };
     let mut val: u64 = 0;
@@ -335,4 +337,26 @@ fn parse_hex(s: &[u8]) -> u64 {
         val = (val << 4) | (digit as u64);
     }
     val
+}
+
+unsafe fn cmd_install() {
+    terminal::write(b"Starting PureOS Installer...\n");
+    terminal::write(b"Press ENTER to continue or ESC to cancel\n");
+    
+    loop {
+        keyboard::poll();
+        if let Some(ch) = keyboard::read_key() {
+            match ch {
+                b'\n' | b'\r' => {
+                    crate::installer::run_installer();
+                }
+                0x1B => {
+                    terminal::write(b"Installation cancelled.\n");
+                    return;
+                }
+                _ => {}
+            }
+        }
+        core::arch::asm!("pause", options(nomem, nostack, preserves_flags));
+    }
 }

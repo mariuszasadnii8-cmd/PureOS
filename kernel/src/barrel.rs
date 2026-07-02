@@ -54,6 +54,12 @@ enum Token {
     RBrace,      // }
     Semicolon,   // ;
     Comma,       // ,
+    // Graphics tokens
+    DrawPixel,
+    DrawLine,
+    DrawRect,
+    DrawCircle,
+    ClearScreen,
 }
 
 const MAX_TOKENS: usize = 64;
@@ -148,6 +154,11 @@ impl<'a> Lexer<'a> {
                         b"loop" => Token::Loop,
                         b"while" => Token::While,
                         b"break" => Token::Break,
+                        b"draw_pixel" => Token::DrawPixel,
+                        b"draw_line" => Token::DrawLine,
+                        b"draw_rect" => Token::DrawRect,
+                        b"draw_circle" => Token::DrawCircle,
+                        b"clear_screen" => Token::ClearScreen,
                         _ => Token::Ident,
                     };
                     tokens[count] = kw;
@@ -341,6 +352,84 @@ unsafe fn exec_block(
                         if si < 255 { *(strbuf.add(si) as *mut u8) = buf[i]; si += 1; }
                     }
                     env.set(name_start, Value::Str(s_start));
+                }
+                expect_semicolon(tokens, ip, tcount);
+            }
+            // Graphics functions
+            Token::DrawPixel => {
+                *ip += 1;
+                let x = eval_expr(tokens, values, ip, tcount, env, strbuf, strbuf_len);
+                let y = eval_expr(tokens, values, ip, tcount, env, strbuf, strbuf_len);
+                let color = eval_expr(tokens, values, ip, tcount, env, strbuf, strbuf_len);
+                
+                if let (Value::Num(xn), Value::Num(yn), Value::Num(cn)) = (x, y, color) {
+                    let r = ((cn >> 16) & 0xFF) as u8;
+                    let g = ((cn >> 8) & 0xFF) as u8;
+                    let b = (cn & 0xFF) as u8;
+                    crate::graphics::draw_pixel(xn as u32, yn as u32, r, g, b);
+                }
+                expect_semicolon(tokens, ip, tcount);
+            }
+            Token::DrawLine => {
+                *ip += 1;
+                let x1 = eval_expr(tokens, values, ip, tcount, env, strbuf, strbuf_len);
+                let y1 = eval_expr(tokens, values, ip, tcount, env, strbuf, strbuf_len);
+                let x2 = eval_expr(tokens, values, ip, tcount, env, strbuf, strbuf_len);
+                let y2 = eval_expr(tokens, values, ip, tcount, env, strbuf, strbuf_len);
+                let color = eval_expr(tokens, values, ip, tcount, env, strbuf, strbuf_len);
+                
+                if let (Value::Num(x1n), Value::Num(y1n), Value::Num(x2n), Value::Num(y2n), Value::Num(cn)) = (x1, y1, x2, y2, color) {
+                    let r = ((cn >> 16) & 0xFF) as u8;
+                    let g = ((cn >> 8) & 0xFF) as u8;
+                    let b = (cn & 0xFF) as u8;
+                    crate::graphics::draw_line(x1n as u32, y1n as u32, x2n as u32, y2n as u32, r, g, b);
+                }
+                expect_semicolon(tokens, ip, tcount);
+            }
+            Token::DrawRect => {
+                *ip += 1;
+                let x = eval_expr(tokens, values, ip, tcount, env, strbuf, strbuf_len);
+                let y = eval_expr(tokens, values, ip, tcount, env, strbuf, strbuf_len);
+                let w = eval_expr(tokens, values, ip, tcount, env, strbuf, strbuf_len);
+                let h = eval_expr(tokens, values, ip, tcount, env, strbuf, strbuf_len);
+                let color = eval_expr(tokens, values, ip, tcount, env, strbuf, strbuf_len);
+                let fill = eval_expr(tokens, values, ip, tcount, env, strbuf, strbuf_len);
+                
+                if let (Value::Num(xn), Value::Num(yn), Value::Num(wn), Value::Num(hn), Value::Num(cn), Value::Num(filln)) = (x, y, w, h, color, fill) {
+                    let r = ((cn >> 16) & 0xFF) as u8;
+                    let g = ((cn >> 8) & 0xFF) as u8;
+                    let b = (cn & 0xFF) as u8;
+                    let should_fill = filln != 0;
+                    crate::graphics::draw_rect(xn as u32, yn as u32, wn as u32, hn as u32, r, g, b, should_fill);
+                }
+                expect_semicolon(tokens, ip, tcount);
+            }
+            Token::DrawCircle => {
+                *ip += 1;
+                let x = eval_expr(tokens, values, ip, tcount, env, strbuf, strbuf_len);
+                let y = eval_expr(tokens, values, ip, tcount, env, strbuf, strbuf_len);
+                let radius = eval_expr(tokens, values, ip, tcount, env, strbuf, strbuf_len);
+                let color = eval_expr(tokens, values, ip, tcount, env, strbuf, strbuf_len);
+                let fill = eval_expr(tokens, values, ip, tcount, env, strbuf, strbuf_len);
+                
+                if let (Value::Num(xn), Value::Num(yn), Value::Num(rn), Value::Num(cn), Value::Num(filln)) = (x, y, radius, color, fill) {
+                    let r = ((cn >> 16) & 0xFF) as u8;
+                    let g = ((cn >> 8) & 0xFF) as u8;
+                    let b = (cn & 0xFF) as u8;
+                    let should_fill = filln != 0;
+                    crate::graphics::draw_circle(xn as u32, yn as u32, rn as u32, r, g, b, should_fill);
+                }
+                expect_semicolon(tokens, ip, tcount);
+            }
+            Token::ClearScreen => {
+                *ip += 1;
+                let color = eval_expr(tokens, values, ip, tcount, env, strbuf, strbuf_len);
+                
+                if let Value::Num(cn) = color {
+                    let r = ((cn >> 16) & 0xFF) as u8;
+                    let g = ((cn >> 8) & 0xFF) as u8;
+                    let b = (cn & 0xFF) as u8;
+                    crate::graphics::clear_screen(r, g, b);
                 }
                 expect_semicolon(tokens, ip, tcount);
             }

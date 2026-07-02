@@ -1,7 +1,0 @@
-{
-  "project": {
-    "name": "PureOS",
-    "description": "Immutable Ephemeral Kernel for RAM/ROM with Rust UEFI and C/ASM Userspace",
-    "instructions": "Реализуй функции в kernel/src/syscall.rs и механизм эфемерных слоев в ephemeral.rs. Не используй динамическую аллокацию (Heap) в ядре. Архитектура должна быть полностью zero-alloc / static-time. Поддержка RAM и ROM памяти, UEFI загрузчик для x86_64 AMD64."
-  }
-}

@@ -264,6 +264,15 @@ pub unsafe extern "C" fn sys_call_handler(
         // 32: print_num(value, newline) — вывод целого; rsi!=0 добавляет '\n'.
         // Нужен скомпилированным программам (barrelc): числа в ring3 без itoa.
         32 => sys_print_num(arg1, arg2),
+        // Графические syscalls (33-40)
+        33 => sys_get_screen_info(arg1),
+        34 => sys_draw_pixel(arg1, arg2, arg3),
+        35 => sys_draw_line(arg1, arg2, arg3),
+        36 => sys_draw_rect(arg1, arg2, arg3),
+        37 => sys_draw_circle(arg1, arg2, arg3),
+        38 => sys_draw_image(arg1, arg2, arg3),
+        39 => sys_clear_screen(arg1),
+        40 => sys_set_font_scale(arg1),
         _ => ERR_INVALID_SYSCALL,
     }
 }
@@ -872,6 +881,123 @@ unsafe fn sys_dup(fd: u32) -> i64 {
 /// Управление дескриптором.
 unsafe fn sys_fcntl(_fd: u32, _cmd: u32, _arg: u64) -> i64 {
     ERR_UNSUPPORTED
+}
+
+// ---------------------------------------------------------------------------
+// Графические syscalls (33-40)
+// ---------------------------------------------------------------------------
+
+/// 33: get_screen_info(buf) — получить информацию о экране
+/// buf указывает на структуру ScreenInfo в userspace
+unsafe fn sys_get_screen_info(buf: u64) -> i64 {
+    let pid = CURRENT_PROCESS_ID as usize;
+    if !PROCESS_TABLE[pid].contains_range(buf, 16) {
+        return ERR_INVALID_POINTER;
+    }
+    
+    let info = crate::graphics::get_screen_info();
+    core::ptr::write_volatile(buf as *mut u32, info.width);
+    core::ptr::write_volatile((buf + 4) as *mut u32, info.height);
+    core::ptr::write_volatile((buf + 8) as *mut u32, info.stride);
+    core::ptr::write_volatile((buf + 12) as *mut u32, info.format);
+    
+    0
+}
+
+/// 34: draw_pixel(x, y, color) — нарисовать пиксель
+/// color упакован как 0x00RRGGBB
+unsafe fn sys_draw_pixel(x: u64, y: u64, color: u64) -> i64 {
+    let r = ((color >> 16) & 0xFF) as u8;
+    let g = ((color >> 8) & 0xFF) as u8;
+    let b = (color & 0xFF) as u8;
+    crate::graphics::draw_pixel(x as u32, y as u32, r, g, b);
+    0
+}
+
+/// 35: draw_line(x1, y1, x2, y2, color) — нарисовать линию
+/// args упакованы: arg1=(x1<<16)|y1, arg2=(x2<<16)|y2, arg3=color
+unsafe fn sys_draw_line(arg1: u64, arg2: u64, color: u64) -> i64 {
+    let x1 = (arg1 >> 16) as u32;
+    let y1 = (arg1 & 0xFFFF) as u32;
+    let x2 = (arg2 >> 16) as u32;
+    let y2 = (arg2 & 0xFFFF) as u32;
+    
+    let r = ((color >> 16) & 0xFF) as u8;
+    let g = ((color >> 8) & 0xFF) as u8;
+    let b = (color & 0xFF) as u8;
+    
+    crate::graphics::draw_line(x1, y1, x2, y2, r, g, b);
+    0
+}
+
+/// 36: draw_rect(x, y, w, h, color, fill) — нарисовать прямоугольник
+/// args: arg1=(x<<16)|y, arg2=(w<<16)|h, arg3=(fill<<32)|color
+unsafe fn sys_draw_rect(arg1: u64, arg2: u64, arg3: u64) -> i64 {
+    let x = (arg1 >> 16) as u32;
+    let y = (arg1 & 0xFFFF) as u32;
+    let w = (arg2 >> 16) as u32;
+    let h = (arg2 & 0xFFFF) as u32;
+    let fill = (arg3 >> 32) != 0;
+    let color = arg3 & 0xFFFFFFFF;
+    
+    let r = ((color >> 16) & 0xFF) as u8;
+    let g = ((color >> 8) & 0xFF) as u8;
+    let b = (color & 0xFF) as u8;
+    
+    crate::graphics::draw_rect(x, y, w, h, r, g, b, fill);
+    0
+}
+
+/// 37: draw_circle(x, y, radius, color, fill) — нарисовать круг
+/// args: arg1=(x<<16)|y, arg2=(fill<<32)|(radius<<16)|color
+unsafe fn sys_draw_circle(arg1: u64, arg2: u64, _arg3: u64) -> i64 {
+    let x = (arg1 >> 16) as u32;
+    let y = (arg1 & 0xFFFF) as u32;
+    let fill = (arg2 >> 32) != 0;
+    let radius = ((arg2 >> 16) & 0xFFFF) as u32;
+    let color = arg2 & 0xFFFF;
+    
+    let r = ((color >> 8) & 0xF) as u8;
+    let g = (color & 0xF) as u8;
+    let b = 0;
+    
+    crate::graphics::draw_circle(x, y, radius, r, g, b, fill);
+    0
+}
+
+/// 38: draw_image(x, y, data, width, height) — нарисовать изображение
+/// args: arg1=(x<<16)|y, arg2=data, arg3=(width<<16)|height
+unsafe fn sys_draw_image(arg1: u64, data: u64, arg3: u64) -> i64 {
+    let x = (arg1 >> 16) as u32;
+    let y = (arg1 & 0xFFFF) as u32;
+    let width = (arg3 >> 16) as u32;
+    let height = arg3 as u32;
+    
+    let pid = CURRENT_PROCESS_ID as usize;
+    let size = (width * height * 3) as usize;
+    if !PROCESS_TABLE[pid].contains_range(data, size) {
+        return ERR_INVALID_POINTER;
+    }
+    
+    let slice = core::slice::from_raw_parts(data as *const u8, size);
+    crate::graphics::draw_image(x, y, slice, width, height);
+    0
+}
+
+/// 39: clear_screen(color) — очистить экран
+/// color упакован как 0x00RRGGBB
+unsafe fn sys_clear_screen(color: u64) -> i64 {
+    let r = ((color >> 16) & 0xFF) as u8;
+    let g = ((color >> 8) & 0xFF) as u8;
+    let b = (color & 0xFF) as u8;
+    crate::graphics::clear_screen(r, g, b);
+    0
+}
+
+/// 40: set_font_scale(scale) — установить масштаб шрифта
+unsafe fn sys_set_font_scale(scale: u64) -> i64 {
+    // TODO: реализовать сохранение масштаба
+    0
 }
 
 // ---------------------------------------------------------------------------

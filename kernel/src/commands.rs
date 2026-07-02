@@ -2,6 +2,7 @@
 //! Реализация всех команд файловой системы, системных утилит и сетевых команд
 
 use crate::terminal;
+use crate::shell::parse_hex;
 
 /// Виртуальная файловая система (простая реализация)
 static mut CURRENT_PATH: [u8; 256] = [b'/'; 256];
@@ -390,12 +391,57 @@ pub unsafe fn cmd_exit() {
 
 pub unsafe fn cmd_man(args: &[u8]) {
     if args.is_empty() {
-        terminal::write(b"usage: man <command>\n");
+        crate::documentation::show_index();
         return;
     }
-    terminal::write(b"No manual entry for ");
-    terminal::write(args);
-    terminal::write(b"\n");
+    crate::documentation::show_command_help(args);
+}
+
+pub unsafe fn cmd_config(args: &[u8]) {
+    if args.is_empty() {
+        crate::config::show_config();
+        return;
+    }
+    
+    let mut parts = args.split(|&c| c == b' ');
+    let cmd = parts.next().unwrap_or(b"");
+    let value = parts.next().unwrap_or(b"");
+    
+    match cmd {
+        b"show" => crate::config::show_config(),
+        b"reset" => {
+            crate::config::reset_config();
+            terminal::write(b"Configuration reset to defaults\n");
+        }
+        b"preset" => {
+            crate::config::apply_preset(value);
+            terminal::write(b"Preset applied: ");
+            terminal::write(value);
+            terminal::write(b"\n");
+        }
+        b"save" => {
+            crate::config::save_config();
+        }
+        b"load" => {
+            crate::config::load_config();
+        }
+        b"font" => {
+            let scale = parse_hex(value);
+            crate::config::set_font_scale(scale as u32);
+            terminal::write(b"Font scale set to ");
+            terminal::write_num(scale);
+            terminal::write(b"\n");
+        }
+        b"prompt" => {
+            crate::config::set_shell_prompt(value);
+            terminal::write(b"Prompt set to: ");
+            terminal::write(value);
+            terminal::write(b"\n");
+        }
+        _ => {
+            terminal::write(b"usage: config [show|reset|preset|save|load|font|prompt] [value]\n");
+        }
+    }
 }
 
 pub unsafe fn add_to_history(cmd: &[u8], len: usize) {
