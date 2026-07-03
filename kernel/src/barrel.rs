@@ -44,6 +44,12 @@ enum Token {
     Ne,          // !=
     Lt,          // <
     Gt,          // >
+    Le,          // <=
+    Ge,          // >=
+    AndAnd,      // &&
+    OrOr,        // ||
+    Not,         // !
+    Mod,         // %
     Plus,        // +
     Minus,       // -
     Star,        // *
@@ -167,9 +173,12 @@ impl<'a> Lexer<'a> {
                     continue;
                 }
                 b'=' => { self.advance(); if self.peek() == b'=' { self.advance(); Token::EqEq } else { Token::Eq } }
-                b'!' => { self.advance(); if self.peek() == b'=' { self.advance(); Token::Ne } else { Token::Eof } }
-                b'<' => { self.advance(); Token::Lt }
-                b'>' => { self.advance(); Token::Gt }
+                b'!' => { self.advance(); if self.peek() == b'=' { self.advance(); Token::Ne } else { Token::Not } }
+                b'<' => { self.advance(); if self.peek() == b'=' { self.advance(); Token::Le } else { Token::Lt } }
+                b'>' => { self.advance(); if self.peek() == b'=' { self.advance(); Token::Ge } else { Token::Gt } }
+                b'&' => { self.advance(); if self.peek() == b'&' { self.advance(); Token::AndAnd } else { Token::Eof } }
+                b'|' => { self.advance(); if self.peek() == b'|' { self.advance(); Token::OrOr } else { Token::Eof } }
+                b'%' => { self.advance(); Token::Mod }
                 b'+' => { self.advance(); Token::Plus }
                 b'-' => { self.advance(); Token::Minus }
                 b'*' => { self.advance(); Token::Star }
@@ -580,7 +589,7 @@ unsafe fn eval_cmp(
     loop {
         let op = if *ip < MAX_TOKENS { tokens[*ip] } else { Token::Eof };
         match op {
-            Token::EqEq | Token::Ne | Token::Lt | Token::Gt => {
+            Token::EqEq | Token::Ne | Token::Lt | Token::Gt | Token::Le | Token::Ge => {
                 *ip += 1;
                 let right = eval_add(tokens, values, ip, _tcount, env, strbuf, strbuf_len);
                 let ln = match left { Value::Num(n) => n, _ => 0 };
@@ -590,8 +599,36 @@ unsafe fn eval_cmp(
                     Token::Ne => if ln != rn { 1 } else { 0 },
                     Token::Lt => if ln < rn { 1 } else { 0 },
                     Token::Gt => if ln > rn { 1 } else { 0 },
+                    Token::Le => if ln <= rn { 1 } else { 0 },
+                    Token::Ge => if ln >= rn { 1 } else { 0 },
                     _ => 0,
                 });
+            }
+            Token::AndAnd => {
+                *ip += 1;
+                let ln = match left { Value::Num(n) => n, _ => 0 };
+                if ln == 0 {
+                    // short-circuit: false && anything = false
+                    let _ = eval_add(tokens, values, ip, _tcount, env, strbuf, strbuf_len);
+                    left = Value::Num(0);
+                } else {
+                    let right = eval_add(tokens, values, ip, _tcount, env, strbuf, strbuf_len);
+                    let rn = match right { Value::Num(n) => n, _ => 0 };
+                    left = Value::Num(if rn != 0 { 1 } else { 0 });
+                }
+            }
+            Token::OrOr => {
+                *ip += 1;
+                let ln = match left { Value::Num(n) => n, _ => 0 };
+                if ln != 0 {
+                    // short-circuit: true || anything = true
+                    let _ = eval_add(tokens, values, ip, _tcount, env, strbuf, strbuf_len);
+                    left = Value::Num(1);
+                } else {
+                    let right = eval_add(tokens, values, ip, _tcount, env, strbuf, strbuf_len);
+                    let rn = match right { Value::Num(n) => n, _ => 0 };
+                    left = Value::Num(if rn != 0 { 1 } else { 0 });
+                }
             }
             _ => break,
         }
@@ -638,12 +675,17 @@ unsafe fn eval_mul(
     loop {
         let op = if *ip < MAX_TOKENS { tokens[*ip] } else { Token::Eof };
         match op {
-            Token::Star | Token::Slash => {
+            Token::Star | Token::Slash | Token::Mod => {
                 *ip += 1;
                 let right = eval_atom(tokens, values, ip, _tcount, env, strbuf, strbuf_len);
                 let ln = match left { Value::Num(n) => n, _ => 0 };
                 let rn = match right { Value::Num(n) => n, _ => 0 };
-                left = Value::Num(if op == Token::Star { ln.wrapping_mul(rn) } else { if rn != 0 { ln / rn } else { 0 } });
+                left = Value::Num(match op {
+                    Token::Star => ln.wrapping_mul(rn),
+                    Token::Slash => if rn != 0 { ln / rn } else { 0 },
+                    Token::Mod => if rn != 0 { ln % rn } else { 0 },
+                    _ => 0,
+                });
             }
             _ => break,
         }
@@ -681,6 +723,39 @@ unsafe fn eval_atom(
         Token::Minus => {
             let val = eval_atom(tokens, values, ip, _tcount, env, strbuf, strbuf_len);
             match val { Value::Num(n) => Value::Num(n.wrapping_neg()), _ => Value::Nil }
+        }
+        Token::Not => {
+            let val = eval_atom(tokens, values, ip, _tcount, env, strbuf, strbuf_len);
+            match val { Value::Num(n) => Value::Num(if n == 0 { 1 } else { 0 }), _ => Value::Nil }
+        }
+        Token::Input => {
+            let mut buf = [0u8; 64];
+            let mut pos = 0;
+            crate::terminal::write(b"> ");
+            loop {
+                if let Some(ch) = crate::keyboard::read_key() {
+                    match ch {
+                        b'\n' | b'\r' => { crate::terminal::putchar(b'\n'); break; }
+                        0x7F | 0x08 => { if pos > 0 { pos -= 1; crate::terminal::putchar(0x7F); } }
+                        _ if ch >= 0x20 && ch < 0x7F => {
+                            if pos < 63 { buf[pos] = ch; pos += 1; crate::terminal::putchar(ch); }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            // Пытаемся прочитать как число.
+            if pos == 0 { return Value::Num(0); }
+            let mut n: u64 = 0;
+            let mut started = false;
+            for i in 0..pos {
+                let d = buf[i];
+                if d >= b'0' && d <= b'9' {
+                    n = n.wrapping_mul(10).wrapping_add((d - b'0') as u64);
+                    started = true;
+                }
+            }
+            if started { Value::Num(n) } else { Value::Num(0) }
         }
         _ => Value::Nil,
     }

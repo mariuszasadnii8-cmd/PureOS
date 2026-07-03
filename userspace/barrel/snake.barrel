@@ -1,0 +1,72 @@
+// Snake for Barrel REPL
+// Запуск: скопировать в REPL или сохранить и запустить через run
+// Управление: w/a/s/d (вводить букву, Enter), q — выход
+
+let x = 14 ;
+let y = 9 ;
+let fx = 5 ;
+let fy = 5 ;
+let score = 0 ;
+let running = 1 ;
+let dir = "d" ;
+
+loop {
+    // Рисуем поле
+    let row = 0 ;
+    while row < 20 {
+        let col = 0 ;
+        while col < 30 {
+            if row == 0 { print "#" ; }
+            else if row == 19 { print "#" ; }
+            else if col == 0 { print "#" ; }
+            else if col == 29 { print "#" ; }
+            else if row == y & col == x { print "@" ; }
+            else if row == fy & col == fx { print "*" ; }
+            else { print "." ; }
+            let col = col + 1 ;
+        }
+        println "" ;
+        let row = row + 1 ;
+    }
+    print "Score: " ;
+    println score ;
+    print "w/a/s/d/q: " ;
+    
+    input dir ;
+    
+    // Обновляем позицию
+    if dir == "w" { let y = y - 1 ; }
+    if dir == "s" { let y = y + 1 ; }
+    if dir == "a" { let x = x - 1 ; }
+    if dir == "d" { let x = x + 1 ; }
+    if dir == "q" { break ; }
+    
+    // Стены
+    if x < 1 { let running = 0 ; }
+    if x > 28 { let running = 0 ; }
+    if y < 1 { let running = 0 ; }
+    if y > 18 { let running = 0 ; }
+    
+    // Еда
+    if x == fx {
+        if y == fy {
+            let score = score + 1 ;
+            let fx = fx + 3 ;
+            if fx > 27 { let fx = 3 ; }
+            let fy = fy + 2 ;
+            if fy > 17 { let fy = 3 ; }
+        }
+    }
+    
+    if running == 0 {
+        println "GAME OVER" ;
+        print "Final score: " ;
+        println score ;
+        println "---" ;
+        let x = 14 ;
+        let y = 9 ;
+        let running = 1 ;
+        let score = 0 ;
+    }
+}
+println "bye" ;

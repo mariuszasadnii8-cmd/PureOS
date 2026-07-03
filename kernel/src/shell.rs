@@ -142,6 +142,9 @@ unsafe fn execute_command() {
     else if is(b"rm") { commands::cmd_rm(args); }
     else if is(b"cp") { commands::cmd_cp(args); }
     else if is(b"mv") { commands::cmd_mv(args); }
+    else if is(b"write") { commands::cmd_write(args); }
+    else if is(b"tree") { commands::cmd_tree(args); }
+    else if is(b"stat") { commands::cmd_stat(args); }
     // Text commands
     else if is(b"cat") { commands::cmd_cat(args); }
     else if is(b"head") { commands::cmd_head(args); }
@@ -183,18 +186,32 @@ unsafe fn execute_command() {
     else if is(b"shutdown") { cmd_shutdown(); }
     else if is(b"exec") { cmd_exec(args); }
     else if is(b"cc") { cmd_cc(args); }
+    else if is(b"snake") { cmd_snake(); }
+    else if is(b"test") { cmd_test(); }
+    else if is(b"top") { cmd_top(); }
+    else if is(b"run") { cmd_run(args); }
     else { unknown_command(); }
 }
 
 unsafe fn unknown_command() { terminal::write(b"unknown command. Type 'help'.\n"); }
 
 unsafe fn cmd_help() {
-    terminal::write(b"Built-in commands: help clear ps info ver echo demo hex\n");
-    terminal::write(b"  barrel  - enter Barrel scripting REPL\n");
-    terminal::write(b"  exec    - exec ELF from memory: exec <hex_addr> <hex_size>\n");
-    terminal::write(b"  cc      - compile Barrel to native ring3 code: cc <source>\n");
-    terminal::write(b"  reboot  - reboot system (UEFI)\n");
-    terminal::write(b"  shutdown- shutdown system (UEFI)\n");
+    terminal::write(b"Built-in commands:\n");
+    terminal::write(b"  help      - this help\n");
+    terminal::write(b"  clear     - clear screen\n");
+    terminal::write(b"  ps        - list processes\n");
+    terminal::write(b"  info/ver  - system info\n");
+    terminal::write(b"  echo/demo/hex\n");
+    terminal::write(b"  barrel    - enter Barrel scripting REPL\n");
+    terminal::write(b"  exec      - exec ELF: exec <hex_addr> <hex_size>\n");
+    terminal::write(b"  cc        - compile Barrel to native ring3: cc <src>\n");
+    terminal::write(b"  snake     - play Snake game\n");
+    terminal::write(b"  test      - run kernel test suite\n");
+    terminal::write(b"  top       - system monitor\n");
+    terminal::write(b"  run       - run Barrel script from fs: run <path>\n");
+    terminal::write(b"  reboot    - reboot system (UEFI)\n");
+    terminal::write(b"  shutdown  - shutdown system (UEFI)\n");
+    terminal::write(b"Type 'help' in shell for full command list.\n");
 }
 
 unsafe fn cmd_clear() { terminal::clear(); }
@@ -321,6 +338,43 @@ unsafe fn cmd_hex(args: &[u8]) {
         }
         terminal::write(b"|\n");
     }
+}
+
+unsafe fn cmd_snake() {
+    terminal::write(b"Starting Snake... (WASD move, Q quit)\n");
+    crate::snake_game::run();
+}
+
+unsafe fn cmd_test() {
+    crate::test_runner::run();
+}
+
+unsafe fn cmd_top() {
+    crate::sysmon::run();
+}
+
+unsafe fn cmd_run(args: &[u8]) {
+    if args.is_empty() {
+        terminal::write(b"usage: run <path>\n");
+        terminal::write(b"  load and run a Barrel script from the filesystem\n");
+        return;
+    }
+    let node = match crate::fs::resolve(args) {
+        Some(n) => n,
+        None => { terminal::write(b"run: file not found\n"); return; }
+    };
+    if crate::fs::kind(node) != crate::fs::Kind::File {
+        terminal::write(b"run: not a file\n"); return;
+    }
+    let data = crate::fs::read(node);
+    if data.is_empty() {
+        terminal::write(b"run: empty file\n"); return;
+    }
+    terminal::write(b"Running: "); terminal::write(args); terminal::write(b"\n");
+    let ptr = data.as_ptr();
+    let len = data.len();
+    crate::barrel::exec(ptr, len);
+    terminal::write(b"\n[script done]\n");
 }
 
 pub(crate) fn parse_hex(s: &[u8]) -> u64 {

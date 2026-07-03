@@ -1,11 +1,10 @@
 //! Система команд PureOS Shell
 //! Реализация всех команд файловой системы, системных утилит и сетевых команд
 
+use crate::fs;
 use crate::terminal;
 use crate::shell::parse_hex;
 
-/// Виртуальная файловая система (простая реализация)
-static mut CURRENT_PATH: [u8; 256] = [b'/'; 256];
 static mut HISTORY: [[u8; 512]; 16] = [[0; 512]; 16];
 static mut HISTORY_INDEX: usize = 0;
 
@@ -66,127 +65,262 @@ pub unsafe fn cmd_help() {
 }
 
 
-/// Файловые команды
+/// Файловые команды — работают на реальной in-RAM ФС (`fs.rs`).
 pub unsafe fn cmd_pwd() {
-    // Find null terminator
-    let mut len = 0;
-    while len < 256 && CURRENT_PATH[len] != 0 {
-        len += 1;
-    }
-    terminal::write(&CURRENT_PATH[..len]);
+    let mut buf = [0u8; 256];
+    let len = fs::path_of(fs::cwd(), &mut buf);
+    terminal::write(&buf[..len]);
     terminal::write(b"\n");
 }
 
 pub unsafe fn cmd_ls(args: &[u8]) {
-    let show_all = args.len() >= 2 && args[0] == b'-' && args[1] == b'l';
-    let _show_hidden = args.len() >= 3 && args[2] == b'a';
-    
-    if show_all {
-        terminal::write(b"total 4\n");
-        terminal::write(b"drwxr-xr-x  2 root root 4096 Jan  1 00:00 .\n");
-        terminal::write(b"drwxr-xr-x  3 root root 4096 Jan  1 00:00 ..\n");
-        terminal::write(b"-rw-r--r--  1 root root    0 Jan  1 00:00 test.txt\n");
+    // Разобрать флаг -l и опциональный путь.
+    let long = args.len() >= 2 && args[0] == b'-' && args[1] == b'l';
+    let path = if long {
+        let rest = &args[2..];
+        let mut i = 0;
+        while i < rest.len() && rest[i] == b' ' { i += 1; }
+        &rest[i..]
     } else {
-        terminal::write(b".  ..  test.txt\n");
+        args
+    };
+
+    let dir = if path.is_empty() {
+        fs::cwd()
+    } else {
+        match fs::resolve(path) {
+            Some(d) => d,
+            None => { terminal::write(b"ls: no such path\n"); return; }
+        }
+    };
+    if fs::kind(dir) != fs::Kind::Dir {
+        // Это файл — просто напечатать его имя.
+        terminal::write(fs::node_name(dir));
+        terminal::write(b"\n");
+        return;
     }
+
+    let mut any = false;
+    fs::for_each_child(dir, |child| {
+        any = true;
+        if long {
+            match fs::kind(child) {
+                fs::Kind::Dir => terminal::write(b"drwxr-xr-x  root root "),
+                _ => terminal::write(b"-rw-r--r--  root root "),
+            }
+            terminal::write_num(fs::size_of(child) as u64);
+            terminal::write(b"  ");
+            terminal::write(fs::node_name(child));
+            if fs::kind(child) == fs::Kind::Dir { terminal::write(b"/"); }
+            terminal::write(b"\n");
+        } else {
+            terminal::write(fs::node_name(child));
+            if fs::kind(child) == fs::Kind::Dir { terminal::write(b"/"); }
+            terminal::write(b"  ");
+        }
+    });
+    if !long {
+        terminal::write(b"\n");
+    }
+    let _ = any;
 }
 
 pub unsafe fn cmd_cd(args: &[u8]) {
-    if args.is_empty() || args[0] == b'~' {
-        CURRENT_PATH[0] = b'/';
-        CURRENT_PATH[1] = 0;
-        return;
+    let target = if args.is_empty() || args[0] == b'~' { b"/" as &[u8] } else { args };
+    match fs::resolve(target) {
+        Some(node) if fs::kind(node) == fs::Kind::Dir => fs::set_cwd(node),
+        Some(_) => terminal::write(b"cd: not a directory\n"),
+        None => terminal::write(b"cd: no such directory\n"),
     }
-    
-    if args[0] == b'.' && args.len() > 1 && args[1] == b'.' {
-        // cd .. - go up (simplified)
-        let mut len = 0;
-        while CURRENT_PATH[len] != 0 && len < 255 { len += 1; }
-        if len > 1 {
-            while len > 1 && CURRENT_PATH[len - 1] != b'/' {
-                CURRENT_PATH[len - 1] = 0;
-                len -= 1;
-            }
-            if len > 1 { CURRENT_PATH[len - 1] = 0; }
-        }
-        return;
-    }
-    
-    // cd /path
-    let mut i = 0;
-    while i < args.len() && i < 255 && args[i] != 0 {
-        CURRENT_PATH[i] = args[i];
-        i += 1;
-    }
-    if i < 255 { CURRENT_PATH[i] = 0; }
 }
 
 pub unsafe fn cmd_mkdir(args: &[u8]) {
     if args.is_empty() {
-        terminal::write(b"usage: mkdir <directory_name>\n");
+        terminal::write(b"usage: mkdir <path>\n");
         return;
     }
-    terminal::write(b"created directory: ");
-    terminal::write(args);
-    terminal::write(b"\n");
+    match fs::resolve_parent(args) {
+        Some((parent, leaf)) => {
+            if fs::mkdir(parent, leaf).is_none() {
+                terminal::write(b"mkdir: cannot create (exists or full)\n");
+            }
+        }
+        None => terminal::write(b"mkdir: invalid path\n"),
+    }
 }
 
 pub unsafe fn cmd_touch(args: &[u8]) {
     if args.is_empty() {
-        terminal::write(b"usage: touch <file_name>\n");
+        terminal::write(b"usage: touch <path>\n");
         return;
     }
-    terminal::write(b"created file: ");
-    terminal::write(args);
-    terminal::write(b"\n");
+    match fs::resolve_parent(args) {
+        Some((parent, leaf)) => {
+            if fs::create_file(parent, leaf).is_none() {
+                terminal::write(b"touch: cannot create\n");
+            }
+        }
+        None => terminal::write(b"touch: invalid path\n"),
+    }
 }
 
 pub unsafe fn cmd_rm(args: &[u8]) {
     if args.is_empty() {
-        terminal::write(b"usage: rm <file> or rm -rf <directory>\n");
+        terminal::write(b"usage: rm [-rf] <path>\n");
         return;
     }
-    
-    let force = args.len() >= 3 && args[0] == b'-' && args[1] == b'r' && args[2] == b'f';
-    let target = if force { &args[4..] } else { args };
-    
-    terminal::write(b"removed: ");
-    terminal::write(target);
-    terminal::write(b"\n");
+    let recursive = args.len() >= 3 && args[0] == b'-' && args[1] == b'r';
+    let target = if args[0] == b'-' {
+        // Пропустить флаг и пробелы.
+        let mut i = 1;
+        while i < args.len() && args[i] != b' ' { i += 1; }
+        while i < args.len() && args[i] == b' ' { i += 1; }
+        &args[i..]
+    } else {
+        args
+    };
+    let node = match fs::resolve(target) {
+        Some(n) => n,
+        None => { terminal::write(b"rm: no such file\n"); return; }
+    };
+    if recursive && fs::kind(node) == fs::Kind::Dir {
+        rm_recursive(node);
+    }
+    if !fs::unlink(node) {
+        terminal::write(b"rm: not empty (use -rf) or root\n");
+    }
+}
+
+unsafe fn rm_recursive(dir: u16) {
+    // Собрать детей, удалить рекурсивно. Собираем индексы во временный буфер.
+    loop {
+        let mut child = 0u16;
+        let mut found = false;
+        fs::for_each_child(dir, |c| {
+            if !found { child = c; found = true; }
+        });
+        if !found { break; }
+        if fs::kind(child) == fs::Kind::Dir {
+            rm_recursive(child);
+        }
+        let _ = fs::unlink(child);
+    }
 }
 
 pub unsafe fn cmd_cp(args: &[u8]) {
     let mut parts = args.split(|&c| c == b' ');
     let src = parts.next().unwrap_or(b"");
     let dst = parts.next().unwrap_or(b"");
-    
     if src.is_empty() || dst.is_empty() {
         terminal::write(b"usage: cp <source> <destination>\n");
         return;
     }
-    
-    terminal::write(b"copied: ");
-    terminal::write(src);
-    terminal::write(b" -> ");
-    terminal::write(dst);
-    terminal::write(b"\n");
+    let src_node = match fs::resolve(src) {
+        Some(n) if fs::kind(n) == fs::Kind::File => n,
+        _ => { terminal::write(b"cp: source not a file\n"); return; }
+    };
+    let data = fs::read(src_node);
+    match fs::resolve_parent(dst) {
+        Some((parent, leaf)) => {
+            if let Some(new) = fs::create_file(parent, leaf) {
+                let _ = fs::write(new, data);
+            } else {
+                terminal::write(b"cp: cannot create destination\n");
+            }
+        }
+        None => terminal::write(b"cp: invalid destination\n"),
+    }
 }
 
 pub unsafe fn cmd_mv(args: &[u8]) {
+    // Реализовано как cp + rm источника.
     let mut parts = args.split(|&c| c == b' ');
     let src = parts.next().unwrap_or(b"");
     let dst = parts.next().unwrap_or(b"");
-    
     if src.is_empty() || dst.is_empty() {
         terminal::write(b"usage: mv <source> <destination>\n");
         return;
     }
-    
-    terminal::write(b"moved: ");
-    terminal::write(src);
-    terminal::write(b" -> ");
-    terminal::write(dst);
+    let src_node = match fs::resolve(src) {
+        Some(n) if fs::kind(n) == fs::Kind::File => n,
+        _ => { terminal::write(b"mv: source not a file\n"); return; }
+    };
+    let data = fs::read(src_node);
+    match fs::resolve_parent(dst) {
+        Some((parent, leaf)) => {
+            if let Some(new) = fs::create_file(parent, leaf) {
+                let _ = fs::write(new, data);
+                let _ = fs::unlink(src_node);
+            } else {
+                terminal::write(b"mv: cannot create destination\n");
+            }
+        }
+        None => terminal::write(b"mv: invalid destination\n"),
+    }
+}
+
+/// Записать текст в файл (перезапись): write <path> <text...>
+pub unsafe fn cmd_write(args: &[u8]) {
+    let mut i = 0;
+    while i < args.len() && args[i] != b' ' { i += 1; }
+    let path = &args[..i];
+    while i < args.len() && args[i] == b' ' { i += 1; }
+    let text = &args[i..];
+    if path.is_empty() {
+        terminal::write(b"usage: write <path> <text>\n");
+        return;
+    }
+    let node = match fs::resolve_parent(path) {
+        Some((parent, leaf)) => match fs::create_file(parent, leaf) {
+            Some(n) => n,
+            None => { terminal::write(b"write: cannot open\n"); return; }
+        },
+        None => { terminal::write(b"write: invalid path\n"); return; }
+    };
+    if !fs::write(node, text) {
+        terminal::write(b"write: fs data pool full\n");
+    }
+}
+
+/// Дерево каталогов от текущего или заданного пути.
+pub unsafe fn cmd_tree(args: &[u8]) {
+    let dir = if args.is_empty() { fs::cwd() } else {
+        match fs::resolve(args) { Some(d) => d, None => { terminal::write(b"tree: no such path\n"); return; } }
+    };
+    terminal::write(fs::node_name(dir));
     terminal::write(b"\n");
+    tree_walk(dir, 1);
+}
+
+unsafe fn tree_walk(dir: u16, depth: u32) {
+    if fs::kind(dir) != fs::Kind::Dir || depth > 8 { return; }
+    fs::for_each_child(dir, |child| {
+        for _ in 0..depth { terminal::write(b"  "); }
+        terminal::write(b"|- ");
+        terminal::write(fs::node_name(child));
+        if fs::kind(child) == fs::Kind::Dir { terminal::write(b"/"); }
+        terminal::write(b"\n");
+        if fs::kind(child) == fs::Kind::Dir {
+            tree_walk(child, depth + 1);
+        }
+    });
+}
+
+/// stat <path>
+pub unsafe fn cmd_stat(args: &[u8]) {
+    if args.is_empty() { terminal::write(b"usage: stat <path>\n"); return; }
+    let node = match fs::resolve(args) {
+        Some(n) => n,
+        None => { terminal::write(b"stat: no such file\n"); return; }
+    };
+    terminal::write(b"  Name: "); terminal::write(fs::node_name(node)); terminal::write(b"\n");
+    terminal::write(b"  Type: ");
+    match fs::kind(node) {
+        fs::Kind::Dir => terminal::write(b"directory\n"),
+        fs::Kind::File => terminal::write(b"file\n"),
+        _ => terminal::write(b"free\n"),
+    }
+    terminal::write(b"  Size: "); terminal::write_num(fs::size_of(node) as u64); terminal::write(b" bytes\n");
 }
 
 /// Текстовые команды
@@ -195,9 +329,13 @@ pub unsafe fn cmd_cat(args: &[u8]) {
         terminal::write(b"usage: cat <file>\n");
         return;
     }
-    terminal::write(b"content of ");
-    terminal::write(args);
-    terminal::write(b":\n[File content would be displayed here]\n");
+    match fs::resolve(args) {
+        Some(n) if fs::kind(n) == fs::Kind::File => {
+            terminal::write(fs::read(n));
+        }
+        Some(_) => terminal::write(b"cat: is a directory\n"),
+        None => terminal::write(b"cat: no such file\n"),
+    }
 }
 
 pub unsafe fn cmd_head(args: &[u8]) {
@@ -270,16 +408,21 @@ pub unsafe fn cmd_kill(args: &[u8]) {
     terminal::write(b"\n");
 }
 
-pub unsafe fn cmd_df(args: &[u8]) {
-    let human = args.len() >= 2 && args[0] == b'-' && args[1] == b'h';
-    
-    if human {
-        terminal::write(b"Filesystem      Size  Used Avail Use% Mounted on\n");
-        terminal::write(b"/dev/ram0       1.0G  128M  896M  13% /\n");
-    } else {
-        terminal::write(b"Filesystem     1K-blocks    Used Available Use% Mounted on\n");
-        terminal::write(b"/dev/ram0       1048576  131072    917504  13% /\n");
-    }
+pub unsafe fn cmd_df(_args: &[u8]) {
+    let s = crate::frame::stats();
+    terminal::write(b"Filesystem     Frames    Used    Free  Mounted on\n");
+    terminal::write(b"ramfs        ");
+    terminal::write_num(s.total_frames);
+    terminal::write(b"   ");
+    terminal::write_num(s.used_frames);
+    terminal::write(b"   ");
+    terminal::write_num(s.free_frames);
+    terminal::write(b"  / (ephemeral)\n");
+    terminal::write(b"Total: ");
+    terminal::write_num(s.total_bytes / (1024 * 1024));
+    terminal::write(b" MiB, used ");
+    terminal::write_num(s.used_bytes / 1024);
+    terminal::write(b" KiB\n");
 }
 
 pub unsafe fn cmd_du(args: &[u8]) {
@@ -302,18 +445,107 @@ pub unsafe fn cmd_du(args: &[u8]) {
     }
 }
 
-pub unsafe fn cmd_free(args: &[u8]) {
-    let megabytes = args.len() >= 2 && args[0] == b'-' && args[1] == b'm';
-    
-    if megabytes {
-        terminal::write(b"              total        used        free      shared  buff/cache   available\n");
-        terminal::write(b"Mem:           1024         128         896           0           0         896\n");
-        terminal::write(b"Swap:             0           0           0\n");
-    } else {
-        terminal::write(b"              total        used        free      shared  buff/cache   available\n");
-        terminal::write(b"Mem:         1048576      131072     917504           0           0      917504\n");
-        terminal::write(b"Swap:             0           0           0\n");
+pub unsafe fn cmd_free(_args: &[u8]) {
+    let s = crate::frame::stats();
+    terminal::write(b"              total        used        free  (KiB, frame pool)\n");
+    terminal::write(b"Mem:   ");
+    pad_num(s.total_bytes / 1024, 12);
+    pad_num(s.used_bytes / 1024, 12);
+    pad_num(s.free_bytes / 1024, 12);
+    terminal::write(b"\n");
+    terminal::write(b"Swap:            0           0           0  (no swap: RAM/ROM only)\n");
+}
+
+/// meminfo — подробная сводка по памяти (frame-pool + топология).
+pub unsafe fn cmd_meminfo() {
+    let s = crate::frame::stats();
+    terminal::write(b"=== PureOS Memory ===\n");
+    terminal::write(b"Frame pool total: "); terminal::write_num(s.total_bytes / 1024); terminal::write(b" KiB (");
+    terminal::write_num(s.total_frames); terminal::write(b" frames)\n");
+    terminal::write(b"Frame pool used:  "); terminal::write_num(s.used_bytes / 1024); terminal::write(b" KiB (");
+    terminal::write_num(s.used_frames); terminal::write(b" frames)\n");
+    terminal::write(b"Frame pool free:  "); terminal::write_num(s.free_bytes / 1024); terminal::write(b" KiB (");
+    terminal::write_num(s.free_frames); terminal::write(b" frames)\n");
+    terminal::write(b"RAM base (hw):    "); terminal::write_hex(crate::hw::ram_base()); terminal::write(b"\n");
+    terminal::write(b"Model: immutable ephemeral (no heap, bump layers)\n");
+}
+
+/// cpuinfo — сведения о процессоре прямо из CPUID.
+pub unsafe fn cmd_cpuinfo() {
+    let mut vendor = [0u8; 12];
+    crate::hw::cpu_vendor(&mut vendor);
+    let mut brand = [0u8; 48];
+    let blen = crate::hw::cpu_brand(&mut brand);
+    let f = crate::hw::cpu_features();
+
+    terminal::write(b"vendor_id   : "); terminal::write(&vendor); terminal::write(b"\n");
+    terminal::write(b"model name  : "); terminal::write(&brand[..blen]); terminal::write(b"\n");
+    terminal::write(b"threads     : "); terminal::write_num(crate::hw::cpu_threads() as u64); terminal::write(b"\n");
+    terminal::write(b"flags       :");
+    if f.fpu { terminal::write(b" fpu"); }
+    if f.tsc { terminal::write(b" tsc"); }
+    if f.apic { terminal::write(b" apic"); }
+    if f.sse { terminal::write(b" sse"); }
+    if f.sse2 { terminal::write(b" sse2"); }
+    if f.avx { terminal::write(b" avx"); }
+    if f.aes { terminal::write(b" aes"); }
+    if f.rdrand { terminal::write(b" rdrand"); }
+    if crate::hw::has_rdseed() { terminal::write(b" rdseed"); }
+    terminal::write(b"\n");
+}
+
+/// lspci — список PCI-устройств, отсканированных в железе.
+pub unsafe fn cmd_lspci() {
+    let devs = crate::hw::pci_devices();
+    if devs.is_empty() {
+        terminal::write(b"no PCI devices found\n");
+        return;
     }
+    for d in devs {
+        // bus:slot.func
+        write_hex2(d.bus); terminal::write(b":");
+        write_hex2(d.slot); terminal::write(b".");
+        terminal::write_num(d.func as u64);
+        terminal::write(b"  ");
+        terminal::write(crate::hw::pci_class_name(d.class, d.subclass));
+        terminal::write(b" [");
+        write_hex4(d.vendor); terminal::write(b":"); write_hex4(d.device);
+        terminal::write(b"]\n");
+    }
+}
+
+/// hwinfo — сводная информация об оборудовании.
+pub unsafe fn cmd_hwinfo() {
+    terminal::write(b"=== PureOS Hardware ===\n");
+    cmd_cpuinfo();
+    terminal::write(b"\n-- Memory --\n");
+    let s = crate::frame::stats();
+    terminal::write(b"frame pool : "); terminal::write_num(s.total_bytes / (1024 * 1024)); terminal::write(b" MiB\n");
+    terminal::write(b"\n-- PCI --\n");
+    cmd_lspci();
+}
+
+// Вспомогательные форматтеры для hex-полей PCI.
+unsafe fn write_hex2(v: u8) {
+    let hex = b"0123456789abcdef";
+    terminal::putchar(hex[(v >> 4) as usize]);
+    terminal::putchar(hex[(v & 0xF) as usize]);
+}
+unsafe fn write_hex4(v: u16) {
+    write_hex2((v >> 8) as u8);
+    write_hex2((v & 0xFF) as u8);
+}
+
+/// Напечатать число, дополнив пробелами слева до ширины `width`.
+unsafe fn pad_num(val: u64, width: usize) {
+    let mut tmp = [0u8; 20];
+    let mut i = tmp.len();
+    let mut v = val;
+    if v == 0 { i -= 1; tmp[i] = b'0'; }
+    while v > 0 { i -= 1; tmp[i] = b'0' + (v % 10) as u8; v /= 10; }
+    let digits = tmp.len() - i;
+    for _ in digits..width { terminal::putchar(b' '); }
+    terminal::write(&tmp[i..]);
 }
 
 /// Сетевые команды

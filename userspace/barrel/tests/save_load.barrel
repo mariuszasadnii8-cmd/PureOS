@@ -1,0 +1,55 @@
+// Barrel Save & Load Test
+// Демонстрирует переменные, циклы, ввод/вывод
+// Сохранить: write /home/user/test_save.barrel <содержимое>
+// Запустить: run /home/user/test_save.barrel
+
+println "=== Barrel Save/Load Test ===" ;
+
+// Тест 1: переменные сохраняют значения
+let saved = 42 ;
+print "saved value = " ;
+println saved ;
+
+let msg = "hello from barrel" ;
+
+// Тест 2: счётчик в цикле
+let i = 0 ;
+let sum = 0 ;
+loop {
+    let sum = sum + i ;
+    let i = i + 1 ;
+    if i > 10 { break ; }
+}
+print "sum 0..10 = " ;
+println sum ;
+
+// Тест 3: условные переходы
+if sum == 55 {
+    println "sum check PASS" ;
+} else {
+    println "sum check FAIL" ;
+}
+
+// Тест 4: вложенные if
+let a = 5 ;
+let b = 10 ;
+if a < b {
+    if a + 5 == b {
+        println "nested if PASS" ;
+    }
+}
+
+// Тест 5: while loop
+let c = 0 ;
+while c < 3 {
+    print "*" ;
+    let c = c + 1 ;
+}
+println " : while PASS" ;
+
+// Тест 6: input
+print "type 'ok' and press enter: " ;
+input msg ;
+println msg ;
+
+println "=== Save/Load Test Complete ===" ;

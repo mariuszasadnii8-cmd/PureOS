@@ -1,0 +1,57 @@
+// Barrel Arithmetic Tests
+// Запуск: скопировать в Barrel REPL или run <file>
+println "=== Barrel Arithmetic Tests ===" ;
+
+let a = 5 + 3 ;
+print "5 + 3 = " ;
+println a ;
+
+let b = 10 - 4 ;
+print "10 - 4 = " ;
+println b ;
+
+let c = 6 * 7 ;
+print "6 * 7 = " ;
+println c ;
+
+let d = 42 / 6 ;
+print "42 / 6 = " ;
+println d ;
+
+let e = a + b * 2 ;
+print "5+3 + (10-4)*2 = " ;
+println e ;
+
+let n = 0 ;
+let n = n + 1 ;
+let n = n + 1 ;
+let n = n + 1 ;
+print "count to 3: " ;
+println n ;
+
+let x = 10 ;
+if x > 5 {
+    println "10 > 5 : PASS" ;
+}
+
+if x == 10 {
+    println "10 == 10 : PASS" ;
+}
+
+if x != 99 {
+    println "10 != 99 : PASS" ;
+}
+
+if x < 20 {
+    println "10 < 20 : PASS" ;
+}
+
+let loop_count = 0 ;
+loop {
+    let loop_count = loop_count + 1 ;
+    print "." ;
+    if loop_count == 5 { break ; }
+}
+println " : loop 5 PASS" ;
+
+println "=== All arithmetic tests done ===" ;

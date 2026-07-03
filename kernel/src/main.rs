@@ -16,15 +16,20 @@ mod documentation;
 mod elf;
 mod ephemeral;
 mod font;
+mod fs;
 mod frame;
 mod framebuffer;
 mod graphics;
+mod hw;
 mod idt;
 mod installer;
 mod keyboard;
 mod shell;
+mod snake_game;
 mod syscall;
+mod sysmon;
 mod terminal;
+mod test_runner;
 mod uefi;
 
 /// Кристаллическая структура топологии ядра (замораживается при старте).
@@ -83,6 +88,14 @@ pub extern "win64" fn kernel_main(boot_info: *const PureBootInfo) -> ! {
 
         freeze_topology(boot_info);
         init_frame_pool(boot_info);
+        fs::init();
+        // Передаём в hw размер пула фреймов как ориентир доступной RAM.
+        let (ram_b, ram_s) = if !boot_info.is_null() && (*boot_info).magic == BOOT_MAGIC {
+            ((*boot_info).heap_base, (*boot_info).heap_size)
+        } else {
+            (0, 0)
+        };
+        hw::init(ram_b, ram_s);
 
         // Инициализация фреймбуфера (GOP от загрузчика) — для boot-экрана
         let info = &*boot_info;

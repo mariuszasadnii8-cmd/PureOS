@@ -10,8 +10,9 @@
 
 use crate::framebuffer::{self, Rgb};
 
-/// Масштаб глифа: шрифт 8x8 → крупная и читаемая ячейка.
-const SCALE: u32 = 3;
+/// Масштаб глифа: шрифт 8x8 → компактная, но читаемая ячейка.
+/// Уменьшен с 3 до 2 (×1.5 мельче) — больше строк/столбцов на экране.
+const SCALE: u32 = 2;
 const CELL: u32 = 8 * SCALE;
 
 // Палитра терминала.
@@ -213,3 +214,13 @@ pub fn write_hex(val: u64) {
         putchar(hex[((val >> shift) & 0xF) as usize]);
     }
 }
+
+/// Установить позицию курсора (row, col). Без прокрутки.
+pub fn set_cursor(row: u32, col: u32) {
+    unsafe {
+        CUR_ROW = row;
+        CUR_COL = col;
+    }
+}
+
+
