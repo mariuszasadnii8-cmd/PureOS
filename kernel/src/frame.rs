@@ -1,26 +1,23 @@
 //! Физический frame-allocator ядра.
 //!
 //! Работает поверх непрерывного пула физпамяти, который UEFI-загрузчик
-//! зарезервировал через AllocatePages и передал в `PureBootInfo`. Аллокатор
-//! bump-only: освобождение отдельных фреймов не поддерживается на этой вехе —
-//! это согласуется с философией эфемерных слоёв (слой «испаряется» целиком).
+//! зарезервировал через AllocatePages и передал в `PureBootInfo`.
+//! Bump-allocator с поддержкой возврата фреймов через singly-linked free list.
+//! Свободные фреймы хранят указатель на следующий свободный в первых 8 байтах.
 //!
 //! Инвариант: физпамять отображена идентично (phys == virt) в ядре, поэтому
 //! адрес фрейма одновременно и физический, и пригодный для разыменования из
 //! ядра указатель. То же допущение действует в `cpu::map_page`.
 
-use core::ptr::write_bytes;
+use core::ptr::{write_bytes, read_volatile, write_volatile};
 
 pub const FRAME_SIZE: u64 = 4096;
 
-// Курсор пула и его верхняя граница (эксклюзивно). Замораживаются один раз в
-// `init` и далее меняется только `POOL_NEXT` при выдаче фреймов.
 static mut POOL_NEXT: u64 = 0;
 static mut POOL_END: u64 = 0;
-// База пула (выровненная) — замораживается в `init`, нужна для статистики.
 static mut POOL_BASE: u64 = 0;
+static mut FREE_LIST_HEAD: u64 = 0;
 
-/// Сводная статистика пула фреймов (в байтах и во фреймах).
 #[derive(Copy, Clone)]
 pub struct FrameStats {
     pub total_bytes: u64,
@@ -31,7 +28,6 @@ pub struct FrameStats {
     pub free_frames: u64,
 }
 
-/// Снять текущую статистику пула. Bump-аллокатор: used = next - base.
 pub fn stats() -> FrameStats {
     unsafe {
         let base = POOL_BASE;
@@ -57,27 +53,58 @@ pub fn stats() -> FrameStats {
     }
 }
 
-/// Инициализировать пул диапазоном `[base, base + size)`. База выравнивается
-/// вверх до границы фрейма. Пустой/нулевой пул допустим — `alloc_frame` тогда
-/// сразу возвращает `None`.
+/// Реальная статистика с учётом free-list.
+pub fn real_stats() -> FrameStats {
+    unsafe {
+        let s = stats();
+        let mut free = s.free_frames;
+        let mut f = FREE_LIST_HEAD;
+        while f != 0 {
+            free += 1;
+            f = read_volatile(f as *const u64);
+        }
+        FrameStats {
+            total_bytes: s.total_bytes,
+            used_bytes: (s.total_frames - free) * FRAME_SIZE,
+            free_bytes: free * FRAME_SIZE,
+            total_frames: s.total_frames,
+            used_frames: s.total_frames - free,
+            free_frames: free,
+        }
+    }
+}
+
 pub unsafe fn init(base: u64, size: u64) {
     if size == 0 {
         POOL_NEXT = 0;
         POOL_END = 0;
         POOL_BASE = 0;
+        FREE_LIST_HEAD = 0;
         return;
     }
     let aligned = (base + FRAME_SIZE - 1) & !(FRAME_SIZE - 1);
     POOL_NEXT = aligned;
     POOL_BASE = aligned;
     POOL_END = base + size;
+    FREE_LIST_HEAD = 0;
+}
+
+/// Вернуть фрейм обратно в пул (через free-list).
+pub unsafe fn free_frame(phys: u64) {
+    if phys == 0 || (phys & 0xFFF) != 0 { return; }
+    write_volatile(phys as *mut u64, FREE_LIST_HEAD);
+    FREE_LIST_HEAD = phys;
 }
 
 /// Выделить один физический фрейм 4 KiB, занулив его перед выдачей.
-/// Зануление обязательно: свежие таблицы страниц и пользовательская память не
-/// должны содержать чужих данных. Возвращает физ. адрес фрейма или `None` при
-/// исчерпании пула.
+/// Сначала проверяет free-list, затем bump.
 pub unsafe fn alloc_frame() -> Option<u64> {
+    if FREE_LIST_HEAD != 0 {
+        let frame = FREE_LIST_HEAD;
+        FREE_LIST_HEAD = read_volatile(frame as *const u64);
+        write_bytes(frame as *mut u8, 0, FRAME_SIZE as usize);
+        return Some(frame);
+    }
     let next = POOL_NEXT;
     if next == 0 || next + FRAME_SIZE > POOL_END {
         return None;

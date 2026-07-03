@@ -105,6 +105,10 @@ pub unsafe fn exec(data_ptr: u64, size: u64) -> i64 {
     syscall::clone_current_pml4_for(slot);
     let pml4 = syscall::process_pml4_phys(slot);
 
+    // Инициализировать список фреймов (frame tracking для free на exit).
+    syscall::PROCESS_TABLE[slot].frames_head = 0;
+    let pid = slot;
+
     // Второй проход: отобразить страницы и скопировать данные сегментов.
     for i in 0..phnum {
         let ph: Elf64Phdr = read_val(data_ptr + phoff as u64 + (i * phentsize) as u64);
@@ -116,6 +120,7 @@ pub unsafe fn exec(data_ptr: u64, size: u64) -> i64 {
         let seg_start = ph.p_vaddr;
         let seg_filesz = ph.p_filesz;
         let seg_memsz = ph.p_memsz;
+        let writable = (ph.p_flags & 2) != 0;
 
         let page_start = seg_start & !0xFFF;
         let page_end = (seg_start + seg_memsz + 0xFFF) & !0xFFF;
@@ -126,8 +131,9 @@ pub unsafe fn exec(data_ptr: u64, size: u64) -> i64 {
                 Some(p) => p,
                 None => return syscall::ERR_OUT_OF_MEMORY,
             };
+            syscall::track_frame(pid, phys);
 
-            if !cpu::map_page(pml4, va, phys, true, true) {
+            if !cpu::map_page(pml4, va, phys, true, writable) {
                 return syscall::ERR_OUT_OF_MEMORY;
             }
             cpu::invlpg(va);
@@ -157,6 +163,7 @@ pub unsafe fn exec(data_ptr: u64, size: u64) -> i64 {
             Some(ph) => ph,
             None => return syscall::ERR_OUT_OF_MEMORY,
         };
+        syscall::track_frame(pid, phys);
         if !cpu::map_page(pml4, va, phys, true, true) {
             return syscall::ERR_OUT_OF_MEMORY;
         }

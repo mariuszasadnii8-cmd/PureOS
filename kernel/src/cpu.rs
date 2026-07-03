@@ -200,7 +200,7 @@ pub fn percpu_addr() -> u64 {
 
 /// Обновить вершину стека ядра текущего процесса (читается трамплином syscall).
 pub unsafe fn set_kernel_rsp(rsp: u64) {
-    PERCPU.kernel_rsp = rsp;
+    crate::smp::set_kernel_rsp(rsp);
 }
 
 #[inline(always)]
@@ -294,76 +294,11 @@ unsafe fn next_table(entry: *mut u64, user: bool) -> Option<*mut u64> {
     Some((*entry & PHYS_MASK) as *mut u64)
 }
 
-/// Пометить диапазон виртуальных адресов как доступный из ring 3 (бит U/S).
-///
-/// UEFI оставляет страницы помеченными как supervisor, поэтому без этого вход
-/// в ring 3 на код/стек демо немедленно вызвал бы #PF. Предполагается
-/// identity-mapping физической памяти (то же допущение, что и в IPC-копировании
-/// и клонировании PML4) — физ. адрес таблиц равен виртуальному.
-/// MILESTONE: при появлении frame-allocator это заменится построением приватных
-/// таблиц с корректными правами на этапе создания эфемерного слоя.
-pub unsafe fn make_user_accessible(virt: u64, size: u64) {
-    if size == 0 {
-        return;
-    }
-    let pml4_phys = read_cr3() & PHYS_MASK;
-    let start = virt & !0xFFF;
-    let end = (virt + size + 0xFFF) & !0xFFF;
-
-    let mut page = start;
-    while page < end {
-        set_user_for_addr(pml4_phys, page);
-        page += 0x1000;
-    }
-
-    // Сбросить TLB перезагрузкой CR3.
-    write_cr3(read_cr3());
-}
-
-unsafe fn set_user_for_addr(pml4_phys: u64, va: u64) {
-    let pml4 = pml4_phys as *mut u64;
-    let e4 = pml4.add(((va >> 39) & 0x1FF) as usize);
-    if *e4 & PAGE_PRESENT == 0 {
-        return;
-    }
-    *e4 |= PAGE_USER;
-
-    let pdpt = (*e4 & PHYS_MASK) as *mut u64;
-    let e3 = pdpt.add(((va >> 30) & 0x1FF) as usize);
-    if *e3 & PAGE_PRESENT == 0 {
-        return;
-    }
-    *e3 |= PAGE_USER;
-    if *e3 & PAGE_HUGE != 0 {
-        *e3 |= PAGE_WRITABLE;
-        return; // 1 GiB страница
-    }
-
-    let pd = (*e3 & PHYS_MASK) as *mut u64;
-    let e2 = pd.add(((va >> 21) & 0x1FF) as usize);
-    if *e2 & PAGE_PRESENT == 0 {
-        return;
-    }
-    *e2 |= PAGE_USER;
-    if *e2 & PAGE_HUGE != 0 {
-        *e2 |= PAGE_WRITABLE;
-        return; // 2 MiB страница
-    }
-
-    let pt = (*e2 & PHYS_MASK) as *mut u64;
-    let e1 = pt.add(((va >> 12) & 0x1FF) as usize);
-    if *e1 & PAGE_PRESENT == 0 {
-        return;
-    }
-    *e1 |= PAGE_USER | PAGE_WRITABLE;
-}
-
 // ---------------------------------------------------------------------------
 // Port I/O — для PS/2 клавиатуры.
 // ---------------------------------------------------------------------------
 
-/// Прочитать байт из порта. Зарезервировано (парная к `outb`).
-#[allow(dead_code)]
+/// Прочитать байт из порта.
 #[inline(always)]
 pub unsafe fn inb(port: u16) -> u8 {
     let val: u8;
@@ -375,6 +310,58 @@ pub unsafe fn inb(port: u16) -> u8 {
 #[inline(always)]
 pub unsafe fn outb(port: u16, val: u8) {
     asm!("out dx, al", in("dx") port, in("al") val, options(nomem, nostack, preserves_flags));
+}
+
+/// Прочитать слово (16 бит) из порта.
+#[inline(always)]
+pub unsafe fn inw(port: u16) -> u16 {
+    let val: u16;
+    asm!("in ax, dx", in("dx") port, out("ax") val, options(nomem, nostack, preserves_flags));
+    val
+}
+
+/// Записать слово (16 бит) в порт.
+#[inline(always)]
+pub unsafe fn outw(port: u16, val: u16) {
+    asm!("out dx, ax", in("dx") port, in("ax") val, options(nomem, nostack, preserves_flags));
+}
+
+/// Прочитать двойное слово (32 бита) из порта.
+#[inline(always)]
+pub unsafe fn inl(port: u16) -> u32 {
+    let val: u32;
+    asm!("in eax, dx", in("dx") port, out("eax") val, options(nomem, nostack, preserves_flags));
+    val
+}
+
+/// Записать двойное слово (32 бита) в порт.
+#[inline(always)]
+pub unsafe fn outl(port: u16, val: u32) {
+    asm!("out dx, eax", in("dx") port, in("eax") val, options(nomem, nostack, preserves_flags));
+}
+
+/// Прочитать 32-битное слово из конфигурационного пространства PCI.
+#[inline(always)]
+pub unsafe fn pci_read32(bus: u8, slot: u8, func: u8, off: u8) -> u32 {
+    let addr: u32 = 0x8000_0000
+        | ((bus as u32) << 16)
+        | ((slot as u32) << 11)
+        | ((func as u32) << 8)
+        | ((off as u32) & 0xFC);
+    outl(0xCF8, addr);
+    inl(0xCFC)
+}
+
+/// Записать 32-битное слово в конфигурационное пространство PCI.
+#[inline(always)]
+pub unsafe fn pci_write32(bus: u8, slot: u8, func: u8, off: u8, val: u32) {
+    let addr: u32 = 0x8000_0000
+        | ((bus as u32) << 16)
+        | ((slot as u32) << 11)
+        | ((func as u32) << 8)
+        | ((off as u32) & 0xFC);
+    outl(0xCF8, addr);
+    outl(0xCFC, val);
 }
 
 /// Переход в ring 3 на заданную точку входа с заданным пользовательским стеком.

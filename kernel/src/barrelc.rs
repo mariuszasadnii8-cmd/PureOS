@@ -68,7 +68,9 @@ enum Tk {
     EqEq,
     Ne,
     Lt,
+    Le,
     Gt,
+    Ge,
     Plus,
     Minus,
     Star,
@@ -164,8 +166,8 @@ impl<'a> Comp<'a> {
             }
             b'=' => { self.pos += 1; if self.peek_ch() == b'=' { self.pos += 1; self.tok = Tk::EqEq; } else { self.tok = Tk::Eq; } }
             b'!' => { self.pos += 1; if self.peek_ch() == b'=' { self.pos += 1; self.tok = Tk::Ne; } else { self.fail(E_PARSE); } }
-            b'<' => { self.pos += 1; self.tok = Tk::Lt; }
-            b'>' => { self.pos += 1; self.tok = Tk::Gt; }
+            b'<' => { self.pos += 1; if self.peek_ch() == b'=' { self.pos += 1; self.tok = Tk::Le; } else { self.tok = Tk::Lt; } }
+            b'>' => { self.pos += 1; if self.peek_ch() == b'=' { self.pos += 1; self.tok = Tk::Ge; } else { self.tok = Tk::Gt; } }
             b'+' => { self.pos += 1; self.tok = Tk::Plus; }
             b'-' => { self.pos += 1; self.tok = Tk::Minus; }
             b'*' => { self.pos += 1; self.tok = Tk::Star; }
@@ -308,7 +310,7 @@ impl<'a> Comp<'a> {
         loop {
             let op = self.tok;
             match op {
-                Tk::EqEq | Tk::Ne | Tk::Lt | Tk::Gt => {
+                Tk::EqEq | Tk::Ne | Tk::Lt | Tk::Le | Tk::Gt | Tk::Ge => {
                     self.next();
                     self.push_rax();
                     self.add();
@@ -318,7 +320,9 @@ impl<'a> Comp<'a> {
                         Tk::EqEq => 0x94, // sete
                         Tk::Ne => 0x95,   // setne
                         Tk::Lt => 0x92,   // setb (unsigned <)
-                        _ => 0x97,        // seta (unsigned >)
+                        Tk::Le => 0x96,   // setbe (unsigned <=)
+                        Tk::Gt => 0x97,   // seta (unsigned >)
+                        _ => 0x93,        // setae (unsigned >=)
                     };
                     self.op_cmp_set(set2);
                 }

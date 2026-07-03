@@ -6,6 +6,7 @@ use crate::terminal;
 /// Конфигурация системы
 pub struct SystemConfig {
     pub font_scale: u32,
+    pub selected_font: u32, // индекс в FontId (0..7)
     pub terminal_colors: TerminalColors,
     pub shell_prompt: [u8; 64],
     pub max_processes: usize,
@@ -61,6 +62,7 @@ impl SystemConfig {
     pub const fn default() -> Self {
         Self {
             font_scale: 1,
+            selected_font: 0, // Compact
             terminal_colors: TerminalColors::default(),
             shell_prompt: *b"pureos$ \0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",
             max_processes: 64,
@@ -92,6 +94,18 @@ pub unsafe fn set_font_scale(scale: u32) {
 /// Получить масштаб шрифта
 pub unsafe fn get_font_scale() -> u32 {
     CONFIG.font_scale
+}
+
+/// Установить выбранный шрифт (индекс 0..7)
+pub unsafe fn set_selected_font(idx: u32) {
+    if idx <= 7 {
+        CONFIG.selected_font = idx;
+    }
+}
+
+/// Получить выбранный шрифт
+pub unsafe fn get_selected_font() -> u32 {
+    CONFIG.selected_font
 }
 
 /// Установить цвета терминала
@@ -171,9 +185,19 @@ pub unsafe fn get_boot_delay() -> u64 {
 pub unsafe fn show_config() {
     terminal::write(b"\n=== PureOS Configuration ===\n\n");
     
-    terminal::write(b"Font Scale: ");
+    terminal::write(b"Screen Resolution: ");
+    terminal::write_num(crate::framebuffer::width() as u64);
+    terminal::write(b"x");
+    terminal::write_num(crate::framebuffer::height() as u64);
+    terminal::write(b" @32bpp\n");
+    
+    terminal::write(b"Font Selection: ");
+    let font_names: [&[u8]; 8] = [b"compact", b"bold", b"italic", b"serif", b"outline", b"tall", b"vga", b"wide"];
+    let idx = if CONFIG.selected_font < 8 { CONFIG.selected_font as usize } else { 0 };
+    terminal::write(font_names[idx]);
+    terminal::write(b" (scale: ");
     terminal::write_num(CONFIG.font_scale as u64);
-    terminal::write(b"\n");
+    terminal::write(b")\n");
     
     terminal::write(b"Terminal Colors: RGB(");
     terminal::write_num(CONFIG.terminal_colors.foreground_r as u64);
@@ -249,16 +273,89 @@ pub unsafe fn apply_preset(preset: &[u8]) {
     }
 }
 
-/// Сохранить конфигурацию (заглушка - нужно реализовать сохранение на диск)
+/// Сохранить конфигурацию в файловую систему (ramfs).
 pub unsafe fn save_config() -> bool {
-    // TODO: Реальное сохранение конфигурации на диск
-    terminal::write(b"Configuration saved (not yet implemented)\n");
+    // Сериализовать CONFIG в плоский буфер: header + fields.
+    let mut buf = [0u8; 128];
+    buf[0] = b'P'; buf[1] = b'C'; buf[2] = b'F'; buf[3] = 1; // magic "PCF" v1
+    let mut off = 4;
+    // font_scale (u32)
+    buf[off..off+4].copy_from_slice(&CONFIG.font_scale.to_le_bytes()); off += 4;
+    // selected_font (u32)
+    buf[off..off+4].copy_from_slice(&CONFIG.selected_font.to_le_bytes()); off += 4;
+    // terminal_colors (6 x u8)
+    buf[off] = CONFIG.terminal_colors.foreground_r; off += 1;
+    buf[off] = CONFIG.terminal_colors.foreground_g; off += 1;
+    buf[off] = CONFIG.terminal_colors.foreground_b; off += 1;
+    buf[off] = CONFIG.terminal_colors.background_r; off += 1;
+    buf[off] = CONFIG.terminal_colors.background_g; off += 1;
+    buf[off] = CONFIG.terminal_colors.background_b; off += 1;
+    // shell_prompt ([u8; 64])
+    let prompt_ptr = core::ptr::addr_of!(CONFIG.shell_prompt) as *const u8;
+    for i in 0..64 { buf[off + i] = *prompt_ptr.add(i); } off += 64;
+    // max_processes (usize -> u64)
+    buf[off..off+8].copy_from_slice(&(CONFIG.max_processes as u64).to_le_bytes()); off += 8;
+    // ephemeral_layer_size (u64)
+    buf[off..off+8].copy_from_slice(&CONFIG.ephemeral_layer_size.to_le_bytes()); off += 8;
+    // enable_graphics (u8)
+    buf[off] = if CONFIG.enable_graphics { 1 } else { 0 }; off += 1;
+    // boot_delay_ms (u64)
+    buf[off..off+8].copy_from_slice(&CONFIG.boot_delay_ms.to_le_bytes()); off += 8;
+
+    let data = &buf[..off];
+    // Создать /etc/pureos.conf
+    let path = match crate::fs::resolve(b"/etc/pureos.conf") {
+        Some(n) if crate::fs::kind(n) == crate::fs::Kind::File => n,
+        _ => {
+            let etc = match crate::fs::resolve(b"/etc") {
+                Some(n) if crate::fs::kind(n) == crate::fs::Kind::Dir => n,
+                _ => match crate::fs::mkdir(crate::fs::ROOT, b"etc") {
+                    Some(n) => n,
+                    None => { terminal::write(b"config: cannot create /etc\n"); return false; }
+                },
+            };
+            match crate::fs::create_file(etc, b"pureos.conf") {
+                Some(n) => n,
+                None => { terminal::write(b"config: cannot create /etc/pureos.conf\n"); return false; }
+            }
+        }
+    };
+    crate::fs::write(path, data);
+    terminal::write(b"Configuration saved to /etc/pureos.conf\n");
     true
 }
 
-/// Загрузить конфигурацию (заглушка - нужно реализовать загрузку с диска)
+/// Загрузить конфигурацию из файловой системы.
 pub unsafe fn load_config() -> bool {
-    // TODO: Реальная загрузка конфигурации с диска
-    terminal::write(b"Configuration loaded (not yet implemented)\n");
+    let path = match crate::fs::resolve(b"/etc/pureos.conf") {
+        Some(n) if crate::fs::kind(n) == crate::fs::Kind::File => n,
+        _ => { terminal::write(b"config: /etc/pureos.conf not found\n"); return false; }
+    };
+    let data = crate::fs::read(path);
+    if data.len() < 4 || data[0] != b'P' || data[1] != b'C' || data[2] != b'F' || data[3] != 1 {
+        terminal::write(b"config: bad format\n"); return false;
+    }
+    if data.len() < 100 {
+        terminal::write(b"config: truncated\n"); return false;
+    }
+    let mut off = 4;
+    CONFIG = SystemConfig::default();
+    CONFIG.font_scale = u32::from_le_bytes([data[off], data[off+1], data[off+2], data[off+3]]); off += 4;
+    CONFIG.selected_font = u32::from_le_bytes([data[off], data[off+1], data[off+2], data[off+3]]); off += 4;
+    CONFIG.terminal_colors.foreground_r = data[off]; off += 1;
+    CONFIG.terminal_colors.foreground_g = data[off]; off += 1;
+    CONFIG.terminal_colors.foreground_b = data[off]; off += 1;
+    CONFIG.terminal_colors.background_r = data[off]; off += 1;
+    CONFIG.terminal_colors.background_g = data[off]; off += 1;
+    CONFIG.terminal_colors.background_b = data[off]; off += 1;
+    for i in 0..64 { CONFIG.shell_prompt[i] = data[off + i]; } off += 64;
+    CONFIG.max_processes = u64::from_le_bytes([data[off], data[off+1], data[off+2], data[off+3],
+                                                data[off+4], data[off+5], data[off+6], data[off+7]]) as usize; off += 8;
+    CONFIG.ephemeral_layer_size = u64::from_le_bytes([data[off], data[off+1], data[off+2], data[off+3],
+                                                      data[off+4], data[off+5], data[off+6], data[off+7]]); off += 8;
+    CONFIG.enable_graphics = data[off] != 0; off += 1;
+    CONFIG.boot_delay_ms = u64::from_le_bytes([data[off], data[off+1], data[off+2], data[off+3],
+                                                data[off+4], data[off+5], data[off+6], data[off+7]]);
+    terminal::write(b"Configuration loaded from /etc/pureos.conf\n");
     true
 }

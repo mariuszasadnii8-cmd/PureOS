@@ -20,15 +20,29 @@ pub unsafe fn run() -> ! {
     terminal::clear();
     show_banner();
 
+    // Init mouse cursor
+    crate::usb::mouse_init();
+
     CMD_LEN = 0;
     show_prompt();
 
-    // Главный REPL-цикл: опрашиваем UEFI-клавиатуру, скармливаем символы
+    // Главный REPL-цикл: опрашиваем HID (клавиатура + мышь), скармливаем символы
     // обработчику, который редактирует CMD_BUF и по Enter выполняет команду.
     // Прерывания выключены (§5), поэтому это кооперативный polling, а не сон.
     loop {
+        // USB keyboard + mouse
+        crate::usb::poll();
+        // Обновить курсор мыши (save/restore background + draw)
+        crate::usb::mouse_poll();
+
+        while let Some(ch) = crate::usb::key_read() {
+            // Скрыть курсор при вводе текста
+            crate::usb::mouse_hide();
+            handle_key(ch);
+        }
         keyboard::poll();
         while let Some(ch) = keyboard::read_key() {
+            crate::usb::mouse_hide();
             handle_key(ch);
         }
         // Короткая пауза, чтобы не жечь CPU в плотном busy-loop.
@@ -39,12 +53,15 @@ pub unsafe fn run() -> ! {
 unsafe fn show_banner() {
     terminal::write(b"\n");
     terminal::write(b"  +----------------------------------------------------------+\n");
-    terminal::write(b"  |  PUREOS  v0.3 		                           |\n");
-    terminal::write(b"  |  Type 'help' for commands  |  'barrel' for Barrel REPL   |\n");
+    terminal::write(b"  |  PUREOS  v0.4		   (crystal)                    |\n");
+    terminal::write(b"  |  Type 'help'    - all commands                            |\n");
+    terminal::write(b"  |  Type 'man'     - documentation index                     |\n");
+    terminal::write(b"  |  Type 'barrel'  - Barrel scripting REPL                   |\n");
+    terminal::write(b"  |  Type 'top'     - system monitor                          |\n");
     terminal::write(b"  +----------------------------------------------------------+\n");
     terminal::write(b"\n");
     // Serial backup
-    crate::console::serial_puts(b"\n PUREOS v0.3 \n");
+    crate::console::serial_puts(b"\n PUREOS v0.4 \n");
 }
 
 unsafe fn show_prompt() {
@@ -160,6 +177,7 @@ unsafe fn execute_command() {
     else if is(b"df") { commands::cmd_df(args); }
     else if is(b"du") { commands::cmd_du(args); }
     else if is(b"free") { commands::cmd_free(args); }
+    else if is(b"hwinfo") { commands::cmd_hwinfo(); }
     // Network commands
     else if is(b"ping") { commands::cmd_ping(args); }
     else if is(b"ifconfig") { commands::cmd_ifconfig(); }
@@ -176,9 +194,20 @@ unsafe fn execute_command() {
     else if is(b"man") { commands::cmd_man(args); }
     else if is(b"config") { commands::cmd_config(args); }
     else if is(b"install") { cmd_install(); }
-    // PureOS specific commands
+    // Image commands
+    else if is(b"imgview") { commands::cmd_imgview(args); }
+    else if is(b"jpeg")    { commands::cmd_jpeg(args); }
+    else if is(b"jpg")     { commands::cmd_jpeg(args); }
+    else if is(b"bmp") { commands::cmd_imgview(args); }
+    else if is(b"gif")  { commands::cmd_gif(args); }
+    else if is(b"net")  { commands::cmd_net(args); }
+    // System commands
     else if is(b"info") { cmd_info(); }
-    else if is(b"ver") { cmd_version(); }
+    else if is(b"ver") { commands::cmd_ver(); }
+    else if is(b"cpu") { commands::cmd_cpu(args); }
+    else if is(b"usb") { crate::usb::cmd_usb(args); }
+    else if is(b"mouse") { crate::usb::cmd_mouse(args); }
+    else if is(b"pci") { commands::cmd_pci(args); }
     else if is(b"demo") { cmd_demo(); }
     else if is(b"hex") { cmd_hex(args); }
     else if is(b"barrel") { cmd_barrel(); }
@@ -190,31 +219,14 @@ unsafe fn execute_command() {
     else if is(b"test") { cmd_test(); }
     else if is(b"top") { cmd_top(); }
     else if is(b"run") { cmd_run(args); }
+    else if is(b"font") { commands::cmd_font(args); }
+    else if is(b"wallpaper") { commands::cmd_wallpaper(args); }
+    else if is(b"desktop") { commands::cmd_desktop(args); }
+    else if is(b"theme") { commands::cmd_theme(args); }
     else { unknown_command(); }
 }
 
 unsafe fn unknown_command() { terminal::write(b"unknown command. Type 'help'.\n"); }
-
-unsafe fn cmd_help() {
-    terminal::write(b"Built-in commands:\n");
-    terminal::write(b"  help      - this help\n");
-    terminal::write(b"  clear     - clear screen\n");
-    terminal::write(b"  ps        - list processes\n");
-    terminal::write(b"  info/ver  - system info\n");
-    terminal::write(b"  echo/demo/hex\n");
-    terminal::write(b"  barrel    - enter Barrel scripting REPL\n");
-    terminal::write(b"  exec      - exec ELF: exec <hex_addr> <hex_size>\n");
-    terminal::write(b"  cc        - compile Barrel to native ring3: cc <src>\n");
-    terminal::write(b"  snake     - play Snake game\n");
-    terminal::write(b"  test      - run kernel test suite\n");
-    terminal::write(b"  top       - system monitor\n");
-    terminal::write(b"  run       - run Barrel script from fs: run <path>\n");
-    terminal::write(b"  reboot    - reboot system (UEFI)\n");
-    terminal::write(b"  shutdown  - shutdown system (UEFI)\n");
-    terminal::write(b"Type 'help' in shell for full command list.\n");
-}
-
-unsafe fn cmd_clear() { terminal::clear(); }
 
 unsafe fn cmd_ps() {
     terminal::write(b"  PID  STATE\n");
@@ -237,21 +249,22 @@ unsafe fn cmd_ps() {
 }
 
 unsafe fn cmd_info() {
-    terminal::write(b"PureOS Crystal Kernel v0.3\n");
+    terminal::write(b"PureOS Crystal Kernel v0.4\n");
     terminal::write(b"Processes: "); terminal::write_num(crate::syscall::MAX_PROCESSES as u64);
     terminal::write(b" max\n");
-    terminal::write(b"Input: UEFI Simple Text Input\n");
-    terminal::write(b"Output: UEFI Simple Text Output\n");
-    terminal::write(b"Script: Barrel (built-in)\n");
+    terminal::write(b"Scheduler: preemptive round-robin (APIC timer ~100Hz)\n");
+    terminal::write(b"SMP:       "); terminal::write_num(crate::smp::cpu_count() as u64);
+    terminal::write(b" CPU(s) detected\n");
+    terminal::write(b"Memory:    zero-alloc, bump frame pool + free-list\n");
+    terminal::write(b"Disk:      ATA PIO + blockfs\n");
+    terminal::write(b"Network:   RTL8139 + IPv4/UDP/TCP + DHCP/DNS/HTTP\n");
+    terminal::write(b"USB:       EHCI + HID keyboard\n");
+    terminal::write(b"Input:     USB HID (primary), PS/2 i8042 (fallback)\n");
+    terminal::write(b"Output:    GOP framebuffer + COM1 serial\n");
+    terminal::write(b"Script:    Barrel (built-in, can cc->native ring3)\n");
+    terminal::write(b"Graphics:  pixel/line/rect/circle/image primitives\n");
+    terminal::write(b"Images:    BMP/JPEG/GIF decoder (framebuffer render)\n");
 }
-
-unsafe fn cmd_version() {
-    terminal::write(b"PureOS Crystal v0.3.0\n");
-    terminal::write(b"Immutable Ephemeral Kernel\n");
-    terminal::write(b"UEFI-only | no legacy | Built: 2026-07\n");
-}
-
-unsafe fn cmd_echo(msg: &[u8]) { terminal::write(msg); terminal::write(b"\n"); }
 
 unsafe fn cmd_demo() {
     let pid = crate::syscall::spawn_initial_user(crate::user_demo as *const () as u64);
@@ -398,8 +411,11 @@ unsafe fn cmd_install() {
     terminal::write(b"Press ENTER to continue or ESC to cancel\n");
     
     loop {
-        keyboard::poll();
-        if let Some(ch) = keyboard::read_key() {
+        let ch = crate::usb::key_read().or_else(|| {
+            keyboard::poll();
+            keyboard::read_key()
+        });
+        if let Some(ch) = ch {
             match ch {
                 b'\n' | b'\r' => {
                     crate::installer::run_installer();

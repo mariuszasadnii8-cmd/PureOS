@@ -1,108 +1,100 @@
-# PureOS — полностью UEFI, нуль-аллок, скрипты Barrel
+# PureOS — Кристаллическое неизменяемое ядро v0.4
+
+## Что нового в v0.4
+
+| Фича | Статус | Файл |
+|------|--------|------|
+| **Frame reclamation** — фреймы возвращаются при exit процесса | ✅ | `frame.rs` |
+| **Приватные PML4** для каждого процесса | ✅ | `syscall.rs::spawn_initial_user` |
+| **Preemptive Round-Robin** через APIC-таймер | ✅ | `apic.rs`, `idt.rs` |
+| **Per-process FD tables** — полноценные open/close/dup/fcntl | ✅ | `syscall.rs` |
+| **ATA PIO disk driver** — чтение/запись секторов | ✅ | `ata.rs` |
+| **Block filesystem** — persistent-слой поверх диска | ✅ | `blockfs.rs` |
+| **Улучшенный userspace** — расширенная C-библиотека | ✅ | `userspace/sys_c/` |
+| **Graphics syscalls** (33-40) — полный набор примитивов | ✅ | `syscall.rs` |
+
+## Что изменилось в этом апдейте (help/manuals + kernel improvement)
+
+### Версия обновлена 0.3 → 0.4 везде
+- `shell.rs`: баннер, info, version — все ссылки на v0.4
+- `commands.rs`: uname показывает 0.4.0
+- `fs.rs`: /etc/release, /etc/pureos-version, /etc/motd — все файлы v0.4
+
+### Help/manuals полностью переписаны
+- **`shell::cmd_help()`** — компактный список всех 30+ команд с категориями
+- **`commands::cmd_help()`** — детальный help по 6 категориям (File System, System, Execution, Utilities, Network, Power)
+- **`documentation.rs`** — 15 статей: Introduction, Architecture, v04, Memory, Processes, IPC, Syscalls, APIC Timer, Graphics, Barrel Graphics, Barrel Language, ATA Driver, BlockFS, Shell Commands, Installation
+- **`show_command_help()`** — полный man-справочник для всех 40+ команд с usage/options/examples
+- **Баннер** оболочки показывает info/man/barrel/top вместо вчерашнего минимума
+- **`cmd_info`/`cmd_version`** — показывают APIC, ATA, BlockFS, PS/2, framebuffer
+
+### Kernel improvement: real uptime + kill + process accounting + text commands
+- **`PCB.switch_count`** — сколько раз процесс получал CPU (счётчик переключений)
+- **`PCB.start_tick`** — тик, когда процесс был создан
+- **`TICK_COUNT`** — счётчик тиков APIC-таймера, экспортирован как `get_tick_count()`
+- **`uptime`** — реальное время жизни системы (часы/минуты/секунды от APIC-тиков)
+- **`kill <pid>`** — реальное завершение процесса: флаг Exited + free_process_frames + очистка FD table
+- **`head <file> [n]`** — показывает первые n строк реального файла
+- **`tail <file> [n]`** — показывает последние n строк реального файла
+- **`grep <pattern> <file>`** — ищет подстроку в файле, выводит совпадения
+- **`sysmon` (top)** — uptime, загрузка памяти %, preemptive scheduler info, ticks, switch_count на процесс
+
+### Shell improvements
+- новый баннер с 4 подсказками
+- `cmd_info` показывает все подсистемы (APIC, ATA, BlockFS, PS/2, barrel, graphics)
+- `cmd_version` показывает архитектурные детали
+- Убраны не-ASCII символы (`—` → `-`, `→` → `->`) из byte-строк
+- /etc/motd и /etc/release расширены с описанием v0.4 фич
 
 ## Syscall-таблица (номер в RAX)
 
-### Базовые (1-15)
-
-| № | Имя | Параметры | Описание | Статус |
-|---|-----|-----------|----------|--------|
-| 1 | `memory_allocate` | `rdi=size`, `rsi=flags` | Выделить эфемерную память | ✅ |
-| 2 | `memory_free` | `rdi=addr` | Освободить память (no-op) | ⚠ stub |
-| 3 | `create_process` | `rdi=entry` | Создать процесс | ✅ |
-| 4 | `create_thread` | `rdi=entry`, `rsi=stack` | Создать поток | ✅ |
-| 5 | `yield` | — | Уступить CPU | ✅ |
-| 6 | `exit` | `rdi=code` | Завершить процесс | ✅ |
-| 7 | `send_ipc` | `rdi=target_pid`, `rsi=msg_ptr` | Отправить IPC | ✅ |
-| 8 | `receive_ipc` | `rdi=msg_ptr` | Принять IPC | ✅ |
-| 9 | `reply_ipc` | `rdi=target_pid`, `rsi=msg_ptr` | Ответить на IPC | ✅ |
-| 10 | `share_memory` | `rdi=pid`, `rsi=addr`, `rdx=size` | Расшарить память | ❌ |
-| 11 | `pci_device_access` | `rdi=bdf`, `rsi=offset` | Доступ к PCI | ❌ |
-| 12 | `map_physical_memory` | `rdi=phys`, `rsi=size` | Отобразить MMIO | ❌ |
-| 13 | `create_shared_buffer` | `rdi=size`, `rsi=flags` | Разделяемый буфер | ❌ |
-| 14 | `wait_for_vblank` | — | Ожидание VBlank | ❌ |
-| 15 | `exec_elf` | `rdi=data_ptr`, `rsi=size` | Загрузить ELF-процесс | ✅ |
-
-### Файловые (16-23)
-
-| № | Имя | Параметры | Описание | Статус |
-|---|-----|-----------|----------|--------|
-| 16 | `write` | `rdi=fd`, `rsi=buf`, `rdx=len` | Писать в fd | ✅ |
-| 17 | `read` | `rdi=fd`, `rsi=buf`, `rdx=len` | Читать из fd | ✅ |
-| 18 | `open` | `rdi=flags`, `rsi=path` | Открыть устройство | ⚠ min |
-| 19 | `close` | `rdi=fd` | Закрыть дескриптор | ⚠ stub |
-| 20 | `lseek` | `rdi=fd`, `rsi=offset`, `rdx=whence` | Позиция в файле | ❌ |
-| 21 | `stat` | `rdi=path`, `rsi=buf` | Информация о файле | ❌ |
-| 22 | `dup` | `rdi=fd` | Копировать дескриптор | ⚠ min |
-| 23 | `fcntl` | `rdi=fd`, `rsi=cmd`, `rdx=arg` | Управление fd | ❌ |
-
-### 🌟 Магические syscall (24-31) — для быстрого юзерленда
-
-| № | Имя | Параметры | Описание |
-|---|-----|-----------|----------|
-| **24** | **`print`** | `rdi=buf`, `rsi=len` | Напечатать строку в терминал |
-| **25** | **`println`** | `rdi=buf`, `rsi=len` | Напечатать строку + `\n` |
-| **26** | **`input`** | `rdi=buf`, `rsi=maxlen` | Прочитать строку с клавиатуры (блок.) |
-| **27** | **`ticks`** | — | Системный тик планировщика |
-| **28** | **`cls`** | — | Очистить экран |
-| **29** | **`set_cursor`** | `rdi=row`, `rsi=col` | Установить курсор |
-| **30** | **`color`** | `rdi=fg`, `rsi=bg` | Установить цвета |
-| **31** | **`reboot`** | — | Перезагрузка через UEFI Runtime |
-
-Эти syscall можно вызывать прямо из ассемблера:
-
-```asm
-mov rax, 24        ; sys_print
-mov rdi, msg       ; buf
-mov rsi, 13        ; len
-syscall
-```
-
-Или из C через обёртки в `userspace/sys_c/syscalls.h`.
-
-## 🛢 Barrel — встроенный скриптовый язык
-
-Интерактивный REPL: `barrel` в оболочке → `barrel>`.
-
-### Примеры
+## Архитектура памяти
 
 ```
-print "hello world" ;
-println "hello" ;
-
-let x = 42 ;
-print x ;
-
-let name = input ;
-println "hello, " name ;
-
-if x > 10 { print "big" } else { print "small" } ;
-
-loop { print "." ; if x == 0 { break } ; let x = x - 1 } ;
-
-while x > 0 { print x ; let x = x - 1 } ;
+0x0000_0000_0000_0000 - 0x0000_0000_1000_0000  Physical Memory (Identity-mapped)
+0x0000_1000_0000_0000 - 0x0000_1001_0000_0000  Ephemeral Layers (16MB × 64 processes)
+0xFFFF_8000_0000_0000 - 0xFFFF_FFFF_FFFF_FFFF  Kernel Code/Data
 ```
 
-### Синтаксис
+**Frame allocator**: bump + free-list. Фреймы возвращаются при `exit` процесса.
+**Per-process PML4**: каждый процесс имеет собственные таблицы страниц.
 
-- `print <expr> ;` — вывод
-- `println <expr> ;` — вывод + `\n`
-- `let <name> = <expr> ;` — переменная
-- `input <name> ;` — чтение строки
-- `if <cond> { ... } else { ... }`
-- `loop { ... }` — бесконечный цикл
-- `while <cond> { ... }`
-- `break` — выход из цикла
-- `// комментарий`
+## Планировщик
 
-Выражения: числа, строки (`"..."`), переменные, `+` `-` `*` `/`, сравнения `<` `>` `==` `!=`.
+- **APIC-таймер** (вектор 0x20) — вытесняет процесс каждые ~50ms
+- **Round-Robin** — следующий runnable процесс по кругу
+- **Процесс 0** (shell) не вытесняется
+- `cli` → APIC init → `sti` в последовательности загрузки
 
-## UEFI-only (без legacy)
+## Пользовательский ленд
 
-- **Клавиатура**: UEFI Simple Text Input Protocol (вместо PS/2 0x60/0x64)
-- **Debug**: UEFI ConOut (вместо COM-порта 0x3F8)
-- **Фреймбуфер**: UEFI GOP (как и раньше)
-- **Runtime**: ResetSystem для reboot/shutdown
-- **ExitBootServices**: НЕ вызывается — UEFI протоколы доступны всё время
+Си-библиотека в `userspace/sys_c/syscalls.h`:
+- Все 40 syscall с inline-обёртками
+- `pureos_itoa`, `pureos_strlen`, `pureos_strcmp`
+- Цветовые константы
+- Графические примитивы
+- Файловый ввод-вывод
+
+Примеры:
+- `main.c` — демо всех возможностей
+- `mandelbrot.c` — фрактальный рендеринг
+- `test_proc.asm` — чистый ASM-процесс
+
+## Дисковая подсистема
+
+- ATA PIO (primary channel, LBA28)
+- Блочная ФС: суперблок → inode → блоки данных
+- Монтируется при загрузке, форматируется при отсутствии
+- Синхронизируется с ramfs
+
+## Сборка
+
+```bash
+make kernel   # ядро (x86_64-unknown-none)
+make uefi     # UEFI-загрузчик
+make esp      # ESP-директория
+make run      # QEMU
+```
 
 ## Коды ошибок
 

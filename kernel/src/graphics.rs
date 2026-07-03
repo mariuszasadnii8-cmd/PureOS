@@ -100,15 +100,13 @@ pub fn draw_circle(x: u32, y: u32, radius: u32, r: u8, g: u8, b: u8, fill: bool)
     
     while y0 >= x0 {
         if fill {
-            for i in (x as i32 - x0)..=(x as i32 + x0) {
-                framebuffer::put((x as i32 + x0) as u32, (y as i32 - y0) as u32, color);
-                framebuffer::put((x as i32 - x0) as u32, (y as i32 - y0) as u32, color);
-                framebuffer::put((x as i32 + x0) as u32, (y as i32 + y0) as u32, color);
-                framebuffer::put((x as i32 - x0) as u32, (y as i32 + y0) as u32, color);
-                framebuffer::put((x as i32 + y0) as u32, (y as i32 - x0) as u32, color);
-                framebuffer::put((x as i32 - y0) as u32, (y as i32 - x0) as u32, color);
-                framebuffer::put((x as i32 + y0) as u32, (y as i32 + x0) as u32, color);
-                framebuffer::put((x as i32 - y0) as u32, (y as i32 + x0) as u32, color);
+            for fx in (x as i32 - x0)..=(x as i32 + x0) {
+                framebuffer::put(fx as u32, (y as i32 - y0) as u32, color);
+                framebuffer::put(fx as u32, (y as i32 + y0) as u32, color);
+            }
+            for fx in (x as i32 - y0)..=(x as i32 + y0) {
+                framebuffer::put(fx as u32, (y as i32 - x0) as u32, color);
+                framebuffer::put(fx as u32, (y as i32 + x0) as u32, color);
             }
         } else {
             framebuffer::put((x as i32 + x0) as u32, (y as i32 - y0) as u32, color);

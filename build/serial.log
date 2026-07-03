@@ -1,0 +1,39 @@
+[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01HBdsDxe: loading Boot0001 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
+BdsDxe: starting Boot0001 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
+[BOOT] Loading kernel...
+[BOOT]  Alloc 0x0000000002000000 (103 pages)
+[BOOT]  Alloc 0x0000000002067000 (13 pages)
+[BOOT]  Alloc 0x0000000002074000 (1 pages)
+[BOOT]  Alloc 0x0000000002075000 (1469 pages)
+[BOOT] Kernel loaded OK
+[BOOT] boot-info ptr=0x000000001e662018 magic=0x505552454f530001
+[ATA] Init disk...
+[BLKFS] no disk present, skipping
+[ATA] OK
+[KERNEL] boot-info ptr=0x000000001e662018 first=0x505552454f530001 second=0x0000000002000000
+[KERNEL] boot-info magic=0x505552454f530001 fb=0x0000000080000000 size=16777216 res=2048x2048
+[KERNEL] framebuffer init ok
+[UEFI] SystemTable & protocols initialized
+[BOOT] Crystal topology frozen
+[CPU] Init GDT/TSS...
+[CPU] rsp0/ist1...
+[CPU] GDT slots filled
+[CPU] TSS descriptor built
+[CPU] LGDT...
+[CPU] LGDT done. Reload segment regs...
+[CPU] Segment regs reloaded. LTR...
+[CPU] LTR done.
+[CPU] OK
+[IDT] Init interrupt descriptor table...
+[IDT] OK
+[APIC] Init local APIC timer...
+
+
+*** CPU EXCEPTION -- KERNEL HALTED ***
+  vector = 13 (#GP general protection)
+  error  = 0x0000000000000038
+  RIP    = 0x0000000002000033
+  CS     = 0x0000000000000008
+  RFLAGS = 0x0000000000010012
+  RSP    = 0x000000001fe65318
+  CR2    = 0x0000000000000000

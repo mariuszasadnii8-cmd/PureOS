@@ -8,60 +8,97 @@ use crate::shell::parse_hex;
 static mut HISTORY: [[u8; 512]; 16] = [[0; 512]; 16];
 static mut HISTORY_INDEX: usize = 0;
 
-/// Обработка команды help
+/// Обработка команды help — подробный вывод по категориям
 pub unsafe fn cmd_help() {
-    terminal::write(b"\n=== PureOS Shell Commands ===\n\n");
-    
-    terminal::write(b"File System:\n");
-    terminal::write(b"  pwd          - show current directory\n");
-    terminal::write(b"  ls [path]    - list files (use -la for details)\n");
-    terminal::write(b"  cd <path>    - change directory\n");
-    terminal::write(b"  mkdir <name> - create directory\n");
-    terminal::write(b"  touch <file> - create empty file\n");
-    terminal::write(b"  rm <file>    - remove file (use -rf for dirs)\n");
-    terminal::write(b"  cp <src> <dst>- copy file\n");
-    terminal::write(b"  mv <src> <dst>- move/rename file\n");
-    
-    terminal::write(b"\nText Operations:\n");
-    terminal::write(b"  cat <file>   - display file content\n");
-    terminal::write(b"  head <file>  - show first lines\n");
-    terminal::write(b"  tail <file>  - show last lines\n");
-    terminal::write(b"  grep <pat> <file> - search in file\n");
-    
-    terminal::write(b"\nSystem:\n");
-    terminal::write(b"  uname -a     - system information\n");
-    terminal::write(b"  uptime        - system uptime\n");
-    terminal::write(b"  whoami       - current user\n");
-    terminal::write(b"  id           - user details\n");
-    terminal::write(b"  ps            - process list\n");
-    terminal::write(b"  kill <pid>   - kill process\n");
-    terminal::write(b"  df -h         - disk usage\n");
-    terminal::write(b"  du <path>    - directory size\n");
-    terminal::write(b"  free -m       - memory usage\n");
-    
-    terminal::write(b"\nNetwork:\n");
-    terminal::write(b"  ping <host>   - ping host\n");
-    terminal::write(b"  ifconfig      - network interfaces\n");
-    terminal::write(b"  netstat       - network statistics\n");
-    
-    terminal::write(b"\nUtilities:\n");
-    terminal::write(b"  history       - command history\n");
-    terminal::write(b"  clear         - clear screen\n");
-    terminal::write(b"  echo <text>   - print text\n");
-    terminal::write(b"  exit          - exit shell\n");
-    terminal::write(b"  man <cmd>     - command manual\n");
-    
-    terminal::write(b"\nPureOS Specific:\n");
-    terminal::write(b"  info          - system info\n");
-    terminal::write(b"  ver           - version\n");
-    terminal::write(b"  demo          - run demo process\n");
-    terminal::write(b"  hex <addr>    - hex dump memory\n");
-    terminal::write(b"  barrel        - Barrel REPL\n");
-    terminal::write(b"  exec          - exec ELF\n");
-    terminal::write(b"  cc            - compile Barrel\n");
-    terminal::write(b"  reboot        - reboot system\n");
-    terminal::write(b"  shutdown      - shutdown system\n");
-    terminal::write(b"\n");
+    terminal::write(b"\n=== PureOS v0.4 Command Reference ===\n\n");
+
+    terminal::write(b"--- File System ---\n");
+    terminal::write(b"  pwd                   show current directory\n");
+    terminal::write(b"  ls [-la] [path]       list directory contents\n");
+    terminal::write(b"  cd <path>             change directory\n");
+    terminal::write(b"  mkdir <path>          create directory\n");
+    terminal::write(b"  touch <path>          create empty file\n");
+    terminal::write(b"  rm [-rf] <path>       remove file or directory\n");
+    terminal::write(b"  cp <src> <dst>        copy file\n");
+    terminal::write(b"  mv <src> <dst>        move/rename file\n");
+    terminal::write(b"  write <path> <text>   write text to file\n");
+    terminal::write(b"  cat <path>            display file contents\n");
+    terminal::write(b"  head <path> [n]       show first n lines\n");
+    terminal::write(b"  tail <path> [n]       show last n lines\n");
+    terminal::write(b"  grep <pattern> <file> search file for pattern\n");
+    terminal::write(b"  stat <path>           file metadata\n");
+    terminal::write(b"  tree [path]           directory tree\n");
+    terminal::write(b"  du [-sh] <path>       directory size\n");
+    terminal::write(b"  df [-h]               disk free space\n");
+
+    terminal::write(b"\n--- System ---\n");
+    terminal::write(b"  info                  detailed system info\n");
+    terminal::write(b"  ver                   kernel version string\n");
+    terminal::write(b"  uname [-a]            system identity\n");
+    terminal::write(b"  uptime                system uptime\n");
+    terminal::write(b"  whoami                current user name\n");
+    terminal::write(b"  id                    user identity\n");
+    terminal::write(b"  ps                    process list\n");
+    terminal::write(b"  kill <pid>            terminate a process\n");
+    terminal::write(b"  free                  memory usage (frame pool)\n");
+    terminal::write(b"  top                   interactive system monitor\n");
+    terminal::write(b"  hwinfo                full hardware probe\n");
+    terminal::write(b"  hex <addr>            hex dump memory\n");
+    terminal::write(b"  config [options]      system configuration\n");
+
+    terminal::write(b"\n--- Execution ---\n");
+    terminal::write(b"  barrel                enter Barrel REPL\n");
+    terminal::write(b"  cc <source>           compile Barrel to ring3 ELF\n");
+    terminal::write(b"  exec <addr> <size>    execute raw ELF from memory\n");
+    terminal::write(b"  run <path>            run Barrel script from fs\n");
+    terminal::write(b"  demo                  run demo user process\n");
+    terminal::write(b"  test                  run built-in tests\n");
+
+    terminal::write(b"\n--- Utilities ---\n");
+    terminal::write(b"  clear                 clear terminal\n");
+    terminal::write(b"  echo <text>           print text\n");
+    terminal::write(b"  history               command history\n");
+    terminal::write(b"  man [topic]           built-in documentation\n");
+    terminal::write(b"  snake                 play Snake game\n");
+    terminal::write(b"  install               launch installer\n");
+
+    terminal::write(b"\n--- Network ---\n");
+    terminal::write(b"  net init              init RTL8139 NIC\n");
+    terminal::write(b"  net dhcp              DHCP negotiation\n");
+    terminal::write(b"  net dns <host>        resolve hostname\n");
+    terminal::write(b"  net http <url>        HTTP GET\n");
+    terminal::write(b"  net status            show network status\n");
+    terminal::write(b"  ping <host>           ping via IP\n");
+    terminal::write(b"  ifconfig              network interfaces\n");
+    terminal::write(b"  netstat               network statistics\n");
+
+    terminal::write(b"\n--- USB ---\n");
+    terminal::write(b"  usb list              list USB devices\n");
+    terminal::write(b"  usb test              interactive keyboard test\n");
+    terminal::write(b"  usb scan              force re-enumeration\n");
+
+    terminal::write(b"\n--- Images ---\n");
+    terminal::write(b"  imgview <file>        display BMP\n");
+    terminal::write(b"  jpeg <file>           display JPEG\n");
+    terminal::write(b"  gif <file>            display GIF (animated)\n");
+
+    terminal::write(b"\n--- Graphics ---\n");
+    terminal::write(b"  wallpaper [name|load] desktop wallpaper\n");
+    terminal::write(b"  theme [name]          terminal color theme\n");
+    terminal::write(b"  font [name|n]         set font/scale\n");
+    terminal::write(b"  desktop               desktop layer manager\n");
+
+    terminal::write(b"\n--- Permissions ---\n");
+    terminal::write(b"  sudo <cmd>            run as superuser\n");
+    terminal::write(b"  chmod <mode> <file>   change permissions\n");
+    terminal::write(b"  chown <user> <file>   change owner\n");
+
+    terminal::write(b"\n--- Power ---\n");
+    terminal::write(b"  reboot                reboot via UEFI\n");
+    terminal::write(b"  shutdown              power off via UEFI\n");
+
+    terminal::write(b"\nUse 'man <command>' for detailed help on any command.\n");
+    terminal::write(b"Use 'man' alone for documentation index.\n\n");
 }
 
 
@@ -339,23 +376,88 @@ pub unsafe fn cmd_cat(args: &[u8]) {
 }
 
 pub unsafe fn cmd_head(args: &[u8]) {
-    if args.is_empty() {
+    // Parse: head <file> [n]
+    let mut parts = args.split(|&c| c == b' ');
+    let path = parts.next().unwrap_or(b"");
+    let count_str = parts.next().unwrap_or(b"");
+    if path.is_empty() {
         terminal::write(b"usage: head <file> [lines]\n");
         return;
     }
-    terminal::write(b"first 10 lines of ");
-    terminal::write(args);
-    terminal::write(b":\n[First lines would be displayed here]\n");
+    let n: usize = if !count_str.is_empty() {
+        let mut v = 0usize;
+        for &ch in count_str {
+            if ch >= b'0' && ch <= b'9' { v = v * 10 + (ch - b'0') as usize; }
+            else { break; }
+        }
+        if v == 0 { 10 } else { v }
+    } else {
+        10
+    };
+    let node = match fs::resolve(path) {
+        Some(n) if fs::kind(n) == fs::Kind::File => n,
+        Some(_) => { terminal::write(b"head: is a directory\n"); return; }
+        None => { terminal::write(b"head: no such file\n"); return; }
+    };
+    let data = fs::read(node);
+    if data.is_empty() { return; }
+    let mut lines = 0;
+    let mut i = 0;
+    while i < data.len() && lines < n {
+        let line_start = i;
+        while i < data.len() && data[i] != b'\n' { i += 1; }
+        terminal::write(&data[line_start..i]);
+        terminal::write(b"\n");
+        lines += 1;
+        if i < data.len() { i += 1; } // skip \n
+    }
 }
 
 pub unsafe fn cmd_tail(args: &[u8]) {
-    if args.is_empty() {
+    let mut parts = args.split(|&c| c == b' ');
+    let path = parts.next().unwrap_or(b"");
+    let count_str = parts.next().unwrap_or(b"");
+    if path.is_empty() {
         terminal::write(b"usage: tail <file> [lines]\n");
         return;
     }
-    terminal::write(b"last 10 lines of ");
-    terminal::write(args);
-    terminal::write(b":\n[Last lines would be displayed here]\n");
+    let n: usize = if !count_str.is_empty() {
+        let mut v = 0usize;
+        for &ch in count_str {
+            if ch >= b'0' && ch <= b'9' { v = v * 10 + (ch - b'0') as usize; }
+            else { break; }
+        }
+        if v == 0 { 10 } else { v }
+    } else {
+        10
+    };
+    let node = match fs::resolve(path) {
+        Some(n) if fs::kind(n) == fs::Kind::File => n,
+        Some(_) => { terminal::write(b"tail: is a directory\n"); return; }
+        None => { terminal::write(b"tail: no such file\n"); return; }
+    };
+    let data = fs::read(node);
+    if data.is_empty() { return; }
+    // Count total lines
+    let mut total_lines = 0;
+    for &b in data.iter() {
+        if b == b'\n' { total_lines += 1; }
+    }
+    if data.len() > 0 && data[data.len()-1] != b'\n' { total_lines += 1; }
+    // Skip to the last n lines
+    let skip = if total_lines > n { total_lines - n } else { 0 };
+    let mut lines_seen = 0;
+    let mut i = 0;
+    while i < data.len() {
+        let line_start = i;
+        while i < data.len() && data[i] != b'\n' { i += 1; }
+        if lines_seen >= skip {
+            terminal::write(&data[line_start..i]);
+            terminal::write(b"\n");
+        }
+        lines_seen += 1;
+        if i < data.len() { i += 1; }
+    }
 }
 
 pub unsafe fn cmd_grep(args: &[u8]) {
@@ -368,11 +470,36 @@ pub unsafe fn cmd_grep(args: &[u8]) {
         return;
     }
     
-    terminal::write(b"searching for '");
-    terminal::write(pattern);
-    terminal::write(b"' in ");
-    terminal::write(file);
-    terminal::write(b":\n[Matching lines would be displayed here]\n");
+    let node = match fs::resolve(file) {
+        Some(n) if fs::kind(n) == fs::Kind::File => n,
+        Some(_) => { terminal::write(b"grep: is a directory\n"); return; }
+        None => { terminal::write(b"grep: no such file\n"); return; }
+    };
+    let data = fs::read(node);
+    if data.is_empty() { return; }
+    let mut matches = 0;
+    let mut i = 0;
+    while i < data.len() {
+        let line_start = i;
+        while i < data.len() && data[i] != b'\n' { i += 1; }
+        let line = &data[line_start..i];
+        // Simple substring search (case-sensitive)
+        if line.len() >= pattern.len() {
+            let mut found = false;
+            for w in line.windows(pattern.len()) {
+                if w == pattern { found = true; break; }
+            }
+            if found {
+                terminal::write(line);
+                terminal::write(b"\n");
+                matches += 1;
+            }
+        }
+        if i < data.len() { i += 1; }
+    }
+    if matches == 0 {
+        terminal::write(b"(no matches)\n");
+    }
 }
 
 /// Системные команды
@@ -380,14 +507,37 @@ pub unsafe fn cmd_uname(args: &[u8]) {
     let show_all = args.len() >= 2 && args[0] == b'-' && args[1] == b'a';
     
     if show_all {
-        terminal::write(b"PureOS 0.3.0 x86_64\n");
+        terminal::write(b"PureOS 0.4.0 x86_64\n");
     } else {
         terminal::write(b"PureOS\n");
     }
 }
 
 pub unsafe fn cmd_uptime() {
-    terminal::write(b"up 0 minutes, load average: 0.00, 0.00, 0.00\n");
+    let ticks = crate::syscall::get_tick_count();
+    // APIC timer ~100 Hz, so ticks/100 = seconds
+    let secs = ticks / 100;
+    let minutes = secs / 60;
+    let hours = minutes / 60;
+    let min_rem = minutes % 60;
+    let sec_rem = secs % 60;
+    if hours > 0 {
+        terminal::write(b"up ");
+        terminal::write_num(hours);
+        terminal::write(b":");
+        if min_rem < 10 { terminal::write(b"0"); }
+        terminal::write_num(min_rem);
+        terminal::write(b":");
+        if sec_rem < 10 { terminal::write(b"0"); }
+        terminal::write_num(sec_rem);
+    } else {
+        terminal::write(b"up ");
+        terminal::write_num(min_rem);
+        terminal::write(b" min ");
+        terminal::write_num(sec_rem);
+        terminal::write(b" sec");
+    }
+    terminal::write(b", load average: 0.00, 0.00, 0.00\n");
 }
 
 pub unsafe fn cmd_whoami() {
@@ -403,50 +553,95 @@ pub unsafe fn cmd_kill(args: &[u8]) {
         terminal::write(b"usage: kill <pid>\n");
         return;
     }
-    terminal::write(b"killed process ");
-    terminal::write(args);
-    terminal::write(b"\n");
+    let mut pid: usize = 0;
+    for &ch in args {
+        if ch >= b'0' && ch <= b'9' {
+            pid = pid * 10 + (ch - b'0') as usize;
+        } else {
+            break;
+        }
+    }
+    if crate::syscall::kill_process(pid) {
+        terminal::write(b"process ");
+        terminal::write_num(pid as u64);
+        terminal::write(b" killed (signal 9)\n");
+    } else {
+        terminal::write(b"kill: invalid PID or process not found\n");
+    }
 }
 
 pub unsafe fn cmd_df(_args: &[u8]) {
-    let s = crate::frame::stats();
-    terminal::write(b"Filesystem     Frames    Used    Free  Mounted on\n");
-    terminal::write(b"ramfs        ");
-    terminal::write_num(s.total_frames);
-    terminal::write(b"   ");
-    terminal::write_num(s.used_frames);
-    terminal::write(b"   ");
-    terminal::write_num(s.free_frames);
-    terminal::write(b"  / (ephemeral)\n");
+    let (total, used) = crate::fs::data_pool_stats();
+    let free = total.saturating_sub(used);
+    terminal::write(b"Filesystem      Size    Used    Free  Mounted on\n");
+    terminal::write(b"ramfs         ");
+    pad_num(total as u64 / 1024, 7);
+    terminal::write(b"  ");
+    pad_num(used as u64 / 1024, 6);
+    terminal::write(b"  ");
+    pad_num(free as u64 / 1024, 6);
+    terminal::write(b"  / (data pool)\n");
     terminal::write(b"Total: ");
-    terminal::write_num(s.total_bytes / (1024 * 1024));
-    terminal::write(b" MiB, used ");
-    terminal::write_num(s.used_bytes / 1024);
+    terminal::write_num(total as u64 / 1024);
+    terminal::write(b" KiB, used ");
+    terminal::write_num(used as u64 / 1024);
     terminal::write(b" KiB\n");
 }
 
 pub unsafe fn cmd_du(args: &[u8]) {
-    let human = args.len() >= 2 && args[0] == b'-' && args[1] == b'h' && args[2] == b's';
-    let path = if human { &args[4..] } else { args };
+    let human = args.len() >= 3 && args[0] == b'-' && args[1] == b's' && args[2] == b'h';
+    let path = if human {
+        if args.len() <= 3 { &[] } else { &args[4..] }
+    } else {
+        args
+    };
     
-    if path.is_empty() {
-        terminal::write(b"usage: du [-sh] <directory>\n");
-        return;
+    let dir = if path.is_empty() {
+        crate::fs::cwd()
+    } else {
+        match crate::fs::resolve(path) {
+            Some(n) if crate::fs::kind(n) == crate::fs::Kind::Dir => n,
+            Some(_) => { terminal::write(b"du: not a directory\n"); return; }
+            None => { terminal::write(b"du: no such path\n"); return; }
+        }
+    };
+    
+    fn du_sum(node: u16) -> u32 {
+        unsafe {
+            let mut total = crate::fs::size_of(node);
+            if crate::fs::kind(node) == crate::fs::Kind::Dir {
+                crate::fs::for_each_child(node, |c| total += du_sum(c));
+            }
+            total
+        }
     }
     
+    let size = du_sum(dir);
+    let name = crate::fs::node_name(dir);
+    
     if human {
-        terminal::write(b"128M\t");
-        terminal::write(path);
+        let (unit, scaled) = if size >= 1024*1024 {
+            (b"M", size / (1024*1024))
+        } else if size >= 1024 {
+            (b"K", size / 1024)
+        } else {
+            (b"B", size)
+        };
+        terminal::write_num(scaled as u64);
+        terminal::write(unit);
+        terminal::write(b"\t");
+        terminal::write(name);
         terminal::write(b"\n");
     } else {
-        terminal::write(b"131072\t");
-        terminal::write(path);
+        terminal::write_num(size as u64);
+        terminal::write(b"\t");
+        terminal::write(name);
         terminal::write(b"\n");
     }
 }
 
 pub unsafe fn cmd_free(_args: &[u8]) {
-    let s = crate::frame::stats();
+    let s = crate::frame::real_stats();
     terminal::write(b"              total        used        free  (KiB, frame pool)\n");
     terminal::write(b"Mem:   ");
     pad_num(s.total_bytes / 1024, 12);
@@ -458,7 +653,7 @@ pub unsafe fn cmd_free(_args: &[u8]) {
 
 /// meminfo — подробная сводка по памяти (frame-pool + топология).
 pub unsafe fn cmd_meminfo() {
-    let s = crate::frame::stats();
+    let s = crate::frame::real_stats();
     terminal::write(b"=== PureOS Memory ===\n");
     terminal::write(b"Frame pool total: "); terminal::write_num(s.total_bytes / 1024); terminal::write(b" KiB (");
     terminal::write_num(s.total_frames); terminal::write(b" frames)\n");
@@ -467,7 +662,7 @@ pub unsafe fn cmd_meminfo() {
     terminal::write(b"Frame pool free:  "); terminal::write_num(s.free_bytes / 1024); terminal::write(b" KiB (");
     terminal::write_num(s.free_frames); terminal::write(b" frames)\n");
     terminal::write(b"RAM base (hw):    "); terminal::write_hex(crate::hw::ram_base()); terminal::write(b"\n");
-    terminal::write(b"Model: immutable ephemeral (no heap, bump layers)\n");
+    terminal::write(b"Model: immutable ephemeral (no heap, bump layers, free-list reclamation)\n");
 }
 
 /// cpuinfo — сведения о процессоре прямо из CPUID.
@@ -621,12 +816,311 @@ pub unsafe fn cmd_exit() {
     terminal::write(b"Type 'reboot' or 'shutdown' to power off\n");
 }
 
-pub unsafe fn cmd_man(args: &[u8]) {
+pub unsafe fn cmd_imgview(args: &[u8]) {
     if args.is_empty() {
-        crate::documentation::show_index();
+        terminal::write(b"usage: imgview <path>\n");
+        terminal::write(b"Display a BMP or JPEG image file on screen.\n");
         return;
     }
-    crate::documentation::show_command_help(args);
+    // Check extension
+    let ext = {
+        let dot = args.iter().rposition(|&c| c == b'.').map(|i| &args[i+1..]).unwrap_or(b"");
+        if dot.len() >= 4 { &dot[..4] } else { dot }
+    };
+    if ext == b"bmp" || ext == b"BMP" {
+        crate::image::display_bmp_file(args);
+    } else if ext == b"jpg" || ext == b"JPG" || ext == b"jpeg" || ext == b"JPEG" {
+        crate::jpeg::display_jpeg_file(args);
+    } else if ext == b"gif" || ext == b"GIF" {
+        crate::gif::display_gif_file(args);
+    } else {
+        // Auto-detect by trying decoders in order
+        if !crate::image::display_bmp_file_full(args) {
+            crate::jpeg::display_jpeg_file(args);
+        }
+    }
+}
+
+pub unsafe fn cmd_jpeg(args: &[u8]) {
+    if args.is_empty() {
+        terminal::write(b"usage: jpeg <path>\n");
+        terminal::write(b"Display a JPEG image file on screen.\n");
+        return;
+    }
+    crate::jpeg::display_jpeg_file(args);
+}
+
+pub unsafe fn cmd_gif(args: &[u8]) {
+    if args.is_empty() {
+        terminal::write(b"usage: gif <path>\n");
+        terminal::write(b"Display an animated GIF image file on screen.\n");
+        terminal::write(b"Press any key to exit the viewer.\n");
+        return;
+    }
+    crate::gif::display_gif_file(args);
+}
+
+pub unsafe fn cmd_net(args: &[u8]) {
+    if args.is_empty() || args == b"help" {
+        terminal::write(b"net commands:\n");
+        terminal::write(b"  net init      - init RTL8139 NIC\n");
+        terminal::write(b"  net dhcp      - DHCP negotiation\n");
+        terminal::write(b"  net dns <host>  - resolve hostname\n");
+        terminal::write(b"  net http <url>  - HTTP GET (host/path)\n");
+        terminal::write(b"  net status    - show network status\n");
+        return;
+    }
+
+    let mut parts = args.split(|&c| c == b' ');
+    let cmd = parts.next().unwrap_or(b"");
+
+    match cmd {
+        b"init" => {
+            if crate::net::nic::init() {
+                terminal::write(b"net: NIC ready\n");
+            }
+        }
+        b"dhcp" => {
+            // Initialize NIC first if needed
+            let mut ipbuf = [0u8; 16];
+            let nl = crate::net::fmt_ip(&crate::net::OUR_IP, &mut ipbuf);
+            if nl == 3 && ipbuf[0] == b'0' && ipbuf[1] == b'.' && ipbuf[2] == b'0' {
+                // Not configured — need to init first
+                if !crate::net::nic::init() { return; }
+            }
+            crate::net::dhcp::dhcp_negotiate();
+        }
+        b"dns" => {
+            let host = parts.next().unwrap_or(b"");
+            if host.is_empty() {
+                terminal::write(b"usage: net dns <hostname>\n");
+                return;
+            }
+            let ip = crate::net::dns::dns_resolve(host);
+            if ip == [0; 4] {
+                terminal::write(b"dns: resolution failed\n");
+            } else {
+                terminal::write(host);
+                terminal::write(b" -> ");
+                let mut ipbuf = [0u8; 16];
+                let nl = crate::net::fmt_ip(&ip, &mut ipbuf);
+                terminal::write(&ipbuf[..nl]);
+                terminal::write(b"\n");
+            }
+        }
+        b"http" | b"get" => {
+            let url = parts.next().unwrap_or(b"");
+            if url.is_empty() {
+                terminal::write(b"usage: net http <host>/<path>\n");
+                return;
+            }
+            // Split host/path at first '/'
+            let mut host = &url[..];
+            let mut path: &[u8] = b"/";
+            for i in 0..url.len() {
+                if url[i] == b'/' {
+                    host = &url[..i];
+                    path = &url[i..];
+                    break;
+                }
+            }
+            let mut resp = [0u8; 4096];
+            let n = crate::net::http::http_get(host, path, &mut resp);
+            if n > 0 {
+                // Print first part of response
+                let show = n.min(1024);
+                terminal::write(&resp[..show]);
+                terminal::write(b"\n");
+            }
+        }
+        b"status" => {
+            terminal::write(b"Network status:\n");
+            terminal::write(b"  MAC: ");
+            for i in 0..6 {
+                let hi = crate::net::OUR_MAC[i] >> 4;
+                let lo = crate::net::OUR_MAC[i] & 0x0F;
+                terminal::write(&[
+                    if hi < 10 { b'0' + hi } else { b'a' + hi - 10 },
+                    if lo < 10 { b'0' + lo } else { b'a' + lo - 10 },
+                ]);
+                if i < 5 { terminal::write(b":"); }
+            }
+            terminal::write(b"\n  IP: ");
+            let mut ipbuf = [0u8; 16];
+            let nl = crate::net::fmt_ip(&crate::net::OUR_IP, &mut ipbuf);
+            terminal::write(&ipbuf[..nl]);
+            terminal::write(b"\n  GW: ");
+            let nl = crate::net::fmt_ip(&crate::net::GATEWAY, &mut ipbuf);
+            terminal::write(&ipbuf[..nl]);
+            terminal::write(b"\n  DNS: ");
+            let nl = crate::net::fmt_ip(&crate::net::DNS_SERVER, &mut ipbuf);
+            terminal::write(&ipbuf[..nl]);
+            terminal::write(b"\n");
+        }
+        _ => {
+            terminal::write(b"Unknown net command: ");
+            terminal::write(cmd);
+            terminal::write(b"\n");
+        }
+    }
+}
+
+pub unsafe fn cmd_cpu(args: &[u8]) {
+    terminal::write(b"CPU Information:\n");
+    terminal::write(b"  Count:  ");
+    terminal::write_num(crate::smp::cpu_count() as u64);
+    terminal::write(b"\n");
+    terminal::write(b"  Features: syscall sse sse2 apic\n");
+    terminal::write(b"  Mode:    64-bit long mode\n");
+    terminal::write(b"  Kernel:  ring0, User: ring3 via SYSCALL/SYSRET\n\n");
+    let _ = args;
+}
+
+pub unsafe fn cmd_pci(args: &[u8]) {
+    cmd_lspci();
+    let _ = args;
+}
+
+pub unsafe fn cmd_font(args: &[u8]) {
+    // Build "font <args>" buffer and pass to cmd_config
+    let mut buf = [0u8; 520];
+    buf[..5].copy_from_slice(b"font ");
+    let mut i = 5;
+    let mut j = 0;
+    while j < args.len() && i < buf.len() - 1 {
+        buf[i] = args[j];
+        i += 1;
+        j += 1;
+    }
+    cmd_config(&buf[..i]);
+}
+
+pub unsafe fn cmd_wallpaper(args: &[u8]) {
+    if args.is_empty() || args == b"list" {
+        terminal::write(b"Wallpapers:\n");
+        terminal::write(b"  solid     Solid color fill\n");
+        terminal::write(b"  gradient  Vertical gradient\n");
+        terminal::write(b"  stripes   Horizontal stripes\n");
+        terminal::write(b"  checkers  Checkerboard pattern\n");
+        terminal::write(b"  radial    Radial gradient\n");
+        terminal::write(b"  waves     Sine waves\n");
+        terminal::write(b"  grid      Grid pattern\n");
+        terminal::write(b"  noise     Static noise\n");
+        terminal::write(b"  load <path>  Load BMP or raw RGB from file\n");
+        return;
+    }
+    if args.len() > 5 && &args[..5] == b"load " {
+        let path = &args[5..];
+        // Try BMP first
+        if crate::image::display_bmp_file_full(path) {
+            terminal::write(b"Wallpaper set from: ");
+            terminal::write(path);
+            terminal::write(b"\n");
+            return;
+        }
+        // Try raw RGB (320x200, 19200 bytes)
+        let node = match crate::fs::resolve(path) {
+            Some(n) if crate::fs::kind(n) == crate::fs::Kind::File => n,
+            _ => { terminal::write(b"wallpaper: file not found\n"); return; }
+        };
+        let data = crate::fs::read(node);
+        // Render raw RGB data (BMP-style BGR, bottom-up)
+        let w = crate::framebuffer::width().min(320);
+        let h = crate::framebuffer::height().min(200);
+        for y in 0..h {
+            for x in 0..w {
+                let src_off = ((199 - y) * 320 + x) as usize * 3;
+                if src_off + 3 <= data.len() {
+                    let b = data[src_off];
+                    let g = data[src_off + 1];
+                    let r = data[src_off + 2];
+                    crate::framebuffer::put(x, y, crate::framebuffer::Rgb(r, g, b));
+                }
+            }
+        }
+        return;
+    }
+    // Try as built-in wallpaper name
+    crate::wallpaper::set_wallpaper_by_name(args);
+}
+
+pub unsafe fn cmd_desktop(args: &[u8]) {
+    terminal::write(b"PureOS Desktop Environment (lightweight)\n");
+    terminal::write(b"  Loading desktop...\n");
+
+    // 1. Set wallpaper to gradient
+    crate::wallpaper::set_wallpaper_by_name(b"gradient");
+
+    // 2. Draw a simple taskbar at the bottom
+    let fb_w = crate::framebuffer::width();
+    let fb_h = crate::framebuffer::height();
+    if fb_h >= 30 {
+        crate::framebuffer::fill_rect(0, fb_h - 24, fb_w, 24, crate::framebuffer::Rgb(20, 20, 30));
+        // Draw clock area
+        crate::framebuffer::fill_rect(fb_w - 80, fb_h - 24, 80, 24, crate::framebuffer::Rgb(30, 30, 40));
+        // Draw some "icons" (colored rectangles)
+        crate::framebuffer::fill_rect(4, fb_h - 20, 16, 16, crate::framebuffer::Rgb(80, 200, 80));
+        crate::framebuffer::fill_rect(24, fb_h - 20, 16, 16, crate::framebuffer::Rgb(80, 80, 200));
+        crate::framebuffer::fill_rect(44, fb_h - 20, 16, 16, crate::framebuffer::Rgb(200, 80, 80));
+    }
+
+    terminal::write(b"  Desktop ready.\n");
+    terminal::write(b"  Press any key to return to shell...\n");
+    let _ = args;
+}
+
+pub unsafe fn cmd_theme(args: &[u8]) {
+    if args.is_empty() || args == b"list" {
+        terminal::write(b"Available themes:\n");
+        let themes: [&[u8]; 10] = [
+            b"dark", b"light", b"amber", b"green", b"blue",
+            b"matrix", b"retro", b"hacker", b"terminal", b"tron",
+        ];
+        for t in &themes {
+            terminal::write(b"  ");
+            terminal::write(t);
+            terminal::write(b"\n");
+        }
+        return;
+    }
+    // Convert theme name to colors and apply
+    let colors = match args {
+        b"dark"     => (0u8, 255u8, 255u8, 255u8, 0u8, 0u8),   // fg_hi fg_lo bg_hi bg_lo accent
+        b"light"    => (0u8, 0u8, 0u8, 255u8, 255u8, 255u8),
+        b"amber"    => (255u8, 191u8, 0u8, 0u8, 0u8, 0u8),
+        b"green"    => (0u8, 255u8, 85u8, 0u8, 0u8, 0u8),
+        b"blue"     => (79u8, 183u8, 255u8, 6u8, 11u8, 16u8),
+        b"matrix"   => (0u8, 255u8, 64u8, 0u8, 16u8, 0u8),
+        b"retro"    => (255u8, 170u8, 64u8, 16u8, 8u8, 0u8),
+        b"hacker"   => (51u8, 255u8, 51u8, 0u8, 0u8, 0u8),
+        b"terminal" => (184u8, 242u8, 146u8, 6u8, 11u8, 16u8),
+        b"tron"     => (0u8, 200u8, 255u8, 0u8, 8u8, 16u8),
+        _ => { terminal::write(b"Unknown theme: "); terminal::write(args); terminal::write(b"\n"); return; }
+    };
+    crate::config::set_terminal_colors(crate::config::TerminalColors {
+        foreground_r: colors.0,
+        foreground_g: colors.1,
+        foreground_b: colors.2,
+        background_r: colors.3,
+        background_g: colors.4,
+        background_b: colors.5,
+    });
+    terminal::init();
+    terminal::write(b"Theme set to: ");
+    terminal::write(args);
+    terminal::write(b"\n");
+}
+
+pub unsafe fn cmd_ver() {
+    terminal::write(b"PureOS Crystal v0.4.0\n");
+    terminal::write(b"Immutable Ephemeral Kernel\n");
+    terminal::write(b"Arch: x86_64 AMD64 | Firmware: UEFI\n");
+    terminal::write(b"Zero-alloc | Preemptive RR | Rendezvous IPC\n");
+    terminal::write(b"Built: 2026-07\n");
+}
+
+pub unsafe fn cmd_man(args: &[u8]) {
+    crate::documentation::man(args);
 }
 
 pub unsafe fn cmd_config(args: &[u8]) {
@@ -643,10 +1137,12 @@ pub unsafe fn cmd_config(args: &[u8]) {
         b"show" => crate::config::show_config(),
         b"reset" => {
             crate::config::reset_config();
+            terminal::init();
             terminal::write(b"Configuration reset to defaults\n");
         }
         b"preset" => {
             crate::config::apply_preset(value);
+            terminal::init();
             terminal::write(b"Preset applied: ");
             terminal::write(value);
             terminal::write(b"\n");
@@ -656,13 +1152,34 @@ pub unsafe fn cmd_config(args: &[u8]) {
         }
         b"load" => {
             crate::config::load_config();
+            terminal::init();
+            terminal::write(b"Configuration loaded from /etc/pureos.conf\n");
         }
         b"font" => {
-            let scale = parse_hex(value);
-            crate::config::set_font_scale(scale as u32);
-            terminal::write(b"Font scale set to ");
-            terminal::write_num(scale);
-            terminal::write(b"\n");
+            // Попробовать распознать имя шрифта
+            let names: [&[u8]; 8] = [b"compact", b"bold", b"italic", b"serif", b"outline", b"tall", b"vga", b"wide"];
+            let mut found = None;
+            for i in 0..names.len() {
+                if value == names[i] {
+                    crate::config::set_selected_font(i as u32);
+                    crate::config::set_font_scale(1);
+                    terminal::init();
+                    terminal::write(b"Font set to ");
+                    terminal::write(names[i]);
+                    terminal::write(b"\n");
+                    found = Some(());
+                    break;
+                }
+            }
+            if found.is_none() {
+                // Если не имя — попробовать как число (scale)
+                let scale = if value.is_empty() { 1u64 } else { parse_hex(value) };
+                crate::config::set_font_scale(scale.clamp(1, 4) as u32);
+                terminal::init();
+                terminal::write(b"Font scale set to ");
+                terminal::write_num(scale.clamp(1, 4));
+                terminal::write(b"\n");
+            }
         }
         b"prompt" => {
             crate::config::set_shell_prompt(value);
@@ -670,8 +1187,51 @@ pub unsafe fn cmd_config(args: &[u8]) {
             terminal::write(value);
             terminal::write(b"\n");
         }
+        b"resolution" | b"res" => {
+            if value.is_empty() {
+                terminal::write(b"Current resolution: ");
+                terminal::write_num(crate::framebuffer::width() as u64);
+                terminal::write(b"x");
+                terminal::write_num(crate::framebuffer::height() as u64);
+                terminal::write(b"\n");
+                terminal::write(b"Resolution change requires framebuffer re-init (not supported at runtime)\n");
+            } else {
+                terminal::write(b"Resolution change not supported at runtime\n");
+            }
+        }
+        b"theme" | b"themes" => {
+            let themes: [&[u8]; 10] = [
+                b"dark", b"light", b"amber", b"green", b"blue",
+                b"matrix", b"retro", b"hacker", b"terminal", b"tron",
+            ];
+            if value.is_empty() || value == b"list" {
+                terminal::write(b"Available themes:\n");
+                for t in &themes {
+                    terminal::write(b"  ");
+                    terminal::write(t);
+                    terminal::write(b"\n");
+                }
+            } else {
+                let mut found = false;
+                for t in &themes {
+                    if value == *t {
+                        crate::config::apply_preset(if value == b"light" { b"light" } else { b"dark" });
+                        terminal::write(b"Theme: ");
+                        terminal::write(value);
+                        terminal::write(b"\n");
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    terminal::write(b"Unknown theme: ");
+                    terminal::write(value);
+                    terminal::write(b"\n");
+                }
+            }
+        }
         _ => {
-            terminal::write(b"usage: config [show|reset|preset|save|load|font|prompt] [value]\n");
+            terminal::write(b"usage: config [show|reset|preset|save|load|font|prompt|resolution|theme] [value]\n");
         }
     }
 }

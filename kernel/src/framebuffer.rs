@@ -6,7 +6,7 @@
 
 use core::ptr::write_volatile;
 
-use crate::font;
+use crate::font::{self, FontId};
 
 const FMT_RGB: u32 = 1;
 
@@ -53,6 +53,20 @@ fn pack(c: Rgb) -> u32 {
 }
 
 #[inline(always)]
+pub fn get(x: u32, y: u32) -> Option<Rgb> {
+    if !enabled() { return None; }
+    let (w, h, stride, base) = unsafe { (FB_W, FB_H, FB_STRIDE, FB_BASE) };
+    if x >= w || y >= h { return None; }
+    let offset = (y as u64 * stride as u64 + x as u64) * 4;
+    let px = unsafe { core::ptr::read_volatile((base + offset) as *const u32) };
+    Some(if unsafe { FB_FMT } == FMT_RGB {
+        Rgb((px & 0xFF) as u8, ((px >> 8) & 0xFF) as u8, ((px >> 16) & 0xFF) as u8)
+    } else {
+        Rgb(((px >> 16) & 0xFF) as u8, ((px >> 8) & 0xFF) as u8, (px & 0xFF) as u8)
+    })
+}
+
+#[inline(always)]
 pub fn put(x: u32, y: u32, c: Rgb) {
     if !enabled() { return; }
     let (w, h, stride, base) = unsafe { (FB_W, FB_H, FB_STRIDE, FB_BASE) };
@@ -73,16 +87,22 @@ pub fn clear(c: Rgb) {
     fill_rect(0, 0, width(), height(), c);
 }
 
-/// Нарисовать символ с масштабом `scale`.
-pub fn draw_char(x: u32, y: u32, ch: u8, c: Rgb, scale: u32) {
-    let g = font::glyph(ch);
-    for (row, bits) in g.iter().enumerate() {
-        for col in 0..8u32 {
-            if bits & (0x80 >> col) != 0 {
+/// Нарисовать символ с масштабом `scale` и выбранным шрифтом.
+pub fn draw_char(x: u32, y: u32, ch: u8, c: Rgb, scale: u32, font_id: FontId) {
+    let fw = font::font_width(font_id);
+    let fh = font::font_height(font_id);
+    for row in 0..fh as usize {
+        for col in 0..fw {
+            if font::glyph_pixel(font_id, ch, row, col) {
                 fill_rect(x + col * scale, y + row as u32 * scale, scale, scale, c);
             }
         }
     }
+}
+
+/// Нарисовать символ с масштабом `scale` (шрифт Compact по умолчанию).
+pub fn draw_char_boot(x: u32, y: u32, ch: u8, c: Rgb, scale: u32) {
+    draw_char(x, y, ch, c, scale, FontId::Compact);
 }
 
 /// Нарисовать строку.
@@ -90,7 +110,7 @@ pub fn draw_str(x: u32, y: u32, s: &[u8], c: Rgb, scale: u32) -> u32 {
     let mut cx = x;
     let advance = 8 * scale;
     for &ch in s {
-        draw_char(cx, y, ch, c, scale);
+        draw_char_boot(cx, y, ch, c, scale);
         cx += advance;
     }
     cx

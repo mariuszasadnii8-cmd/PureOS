@@ -9,11 +9,35 @@
 //! Zero-Alloc: всё состояние — статические переменные фиксированного размера.
 
 use crate::framebuffer::{self, Rgb};
+use crate::font::{self, FontId};
 
-/// Масштаб глифа: шрифт 8x8 → компактная, но читаемая ячейка.
-/// Уменьшен с 3 до 2 (×1.5 мельче) — больше строк/столбцов на экране.
-const SCALE: u32 = 2;
-const CELL: u32 = 8 * SCALE;
+/// Масштаб глифа — переменная, устанавливается из конфига при инициализации.
+static mut SCALE: u32 = 2;
+static mut CELL: u32 = 16;
+static mut SELECTED_FONT: FontId = FontId::Compact;
+
+/// Получить выбранный шрифт из конфига.
+unsafe fn apply_font_config() {
+    let cfg = crate::config::get_config();
+    let idx = cfg.selected_font;
+    SELECTED_FONT = if idx < font::FONT_COUNT as u32 {
+        match idx {
+            0 => FontId::Compact,
+            1 => FontId::Bold,
+            2 => FontId::Italic,
+            3 => FontId::Serif,
+            4 => FontId::Outline,
+            5 => FontId::Tall,
+            6 => FontId::Vga,
+            _ => FontId::Wide,
+        }
+    } else {
+        FontId::Compact
+    };
+    SCALE = cfg.font_scale.clamp(1, 4);
+    let fw = font::font_width(SELECTED_FONT);
+    CELL = fw * SCALE;
+}
 
 // Палитра терминала.
 const BG: Rgb = Rgb(0x06, 0x0b, 0x10);
@@ -29,20 +53,27 @@ static mut READY: bool = false;
 #[inline(always)]
 fn cols() -> u32 {
     let w = framebuffer::width();
-    if w == 0 { 0 } else { w / CELL }
+    if w == 0 { 0 } else { w / unsafe { CELL } }
 }
 
 #[inline(always)]
 fn rows() -> u32 {
     let h = framebuffer::height();
-    if h == 0 { 0 } else { h / CELL }
+    if h == 0 { 0 } else { h / unsafe { CELL } }
 }
 
 /// Инициализировать терминал: очистить экран, сбросить курсор и цвета.
 pub fn init() {
     unsafe {
-        FG_COLOR = FG;
-        BG_COLOR = BG;
+        apply_font_config();
+        // Загрузить цвета из конфигурации (если пользователь менял).
+        let cfg = crate::config::get_config();
+        FG_COLOR = Rgb(cfg.terminal_colors.foreground_r,
+                       cfg.terminal_colors.foreground_g,
+                       cfg.terminal_colors.foreground_b);
+        BG_COLOR = Rgb(cfg.terminal_colors.background_r,
+                       cfg.terminal_colors.background_g,
+                       cfg.terminal_colors.background_b);
         CUR_COL = 0;
         CUR_ROW = 0;
         READY = framebuffer::width() != 0 && framebuffer::height() != 0;
@@ -138,7 +169,18 @@ unsafe fn put_cell(ch: u8) {
     let y = CUR_ROW * CELL;
     // Фон ячейки + глиф поверх.
     framebuffer::fill_rect(x, y, CELL, CELL, BG_COLOR);
-    framebuffer::draw_char(x, y, ch, FG_COLOR, SCALE);
+    let fw = font::font_width(SELECTED_FONT);
+    let fh = font::font_height(SELECTED_FONT);
+    for row in 0..fh as usize {
+        for col in 0..fw {
+            if font::glyph_pixel(SELECTED_FONT, ch, row, col) {
+                framebuffer::fill_rect(
+                    x + col * SCALE,
+                    y + row as u32 * SCALE,
+                    SCALE, SCALE, FG_COLOR);
+            }
+        }
+    }
 }
 
 unsafe fn newline() {

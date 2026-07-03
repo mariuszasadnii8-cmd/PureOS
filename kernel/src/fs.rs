@@ -92,15 +92,35 @@ pub unsafe fn init() {
     // Приветственный файл.
     if let Some(etc) = find_child(ROOT, b"etc") {
         if let Some(motd) = create_file(etc, b"motd") {
-            let _ = write(motd, b"Welcome to PureOS Crystal Kernel.\nType 'help' for commands.\n");
+            let _ = write(motd, b"Welcome to PureOS Crystal Kernel v0.4\n\
+====================================\n\
+  Preemptive round-robin via APIC timer\n\
+  ATA PIO disk + block filesystem\n\
+  Per-process FD tables, private PML4\n\
+  Frame reclamation on exit\n\
+  Barrel scripting + native compiler\n\
+  Graphics primitives (40 syscalls)\n\
+Type 'help' for commands.\n");
         }
         if let Some(rel) = create_file(etc, b"release") {
-            let _ = write(rel, b"PureOS 0.4.0 (crystal) x86_64\n");
+            let _ = write(rel, b"PureOS release 0.4 (crystal)\n\
+Kernel: pureos_kernel 0.4.0\n\
+Arch: x86_64 AMD64\n\
+Firmware: UEFI\n\
+Built: 2026-07\n");
+        }
+        if let Some(ver) = create_file(etc, b"pureos-version") {
+            let _ = write(ver, b"0.4.0\n");
         }
     }
     if let Some(home) = find_child(ROOT, b"home") {
         let _ = mkdir(home, b"user");
     }
+}
+
+/// Получить статистику пула данных ФС.
+pub fn data_pool_stats() -> (u32, u32) {
+    unsafe { (DATA_POOL as u32, DATA_NEXT) }
 }
 
 pub fn is_ready() -> bool {

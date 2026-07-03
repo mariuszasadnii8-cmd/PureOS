@@ -262,6 +262,50 @@ pub unsafe fn init() {
     set(19, exc19, 0);
     set(20, exc20, 0);
     set(21, exc21, 0);
+    // APIC-таймер на векторе TIMER_VECTOR (0x20)
+    set(crate::apic::TIMER_VECTOR as usize, timer_stub, 0);
+    // IPI wake (SMP) на векторе IPI_WAKE_VECTOR (0x21)
+    set(crate::apic::IPI_WAKE_VECTOR as usize, crate::smp::ipi_stub, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Обработчик таймера (APIC, вектор 0x20). Реализует вытесняющий планировщик.
+// ---------------------------------------------------------------------------
+
+#[unsafe(naked)]
+unsafe extern "C" fn timer_stub() {
+    naked_asm!(
+        // Сохранить регистры, которые syscall_entry не сохраняет.
+        "push rax",
+        "push rcx",
+        "push rdx",
+        "push rdi",
+        "push rsi",
+        "push r8",
+        "push r9",
+        "push r10",
+        "push r11",
+        // Выровнять стек.
+        "sub rsp, 8",
+        "call {tick}",
+        "add rsp, 8",
+        "pop r11",
+        "pop r10",
+        "pop r9",
+        "pop r8",
+        "pop rsi",
+        "pop rdi",
+        "pop rdx",
+        "pop rcx",
+        "pop rax",
+        "iretq",
+        tick = sym timer_handler,
+    );
+}
+
+#[no_mangle]
+unsafe extern "C" fn timer_handler() {
+    crate::apic::timer_tick();
 }
 
 /// Загрузить IDT в CPU (`lidt`). Вызывать после `cpu::init_gdt`.

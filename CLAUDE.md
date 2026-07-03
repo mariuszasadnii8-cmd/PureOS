@@ -145,49 +145,51 @@ ExitBootServices НЕ вызывается.
 
 ## 7. Статус и следующие вехи
 
-**Сделано:** UEFI-загрузка + ELF, заморозка топологии, GDT/TSS, мост
-ring0↔ring3 (`syscall/sysret`), Round-Robin с честным переключением контекста,
-синхронный IPC-рандеву, **физический frame-allocator (bump) + честное
-отображение эфемерных слоёв в PML4 процесса** (`frame.rs`, `cpu::map_page`,
-`memory_allocate`). ⚡ Фреймбуфер + консоль: загрузочный экран с кристаллом,
-анимация в планировщике. **ELF-загрузчик** (syscall 15, `elf.rs`) — FFI-мост
-для C/Kotlin/Zig/Rust-бинарников. **Терминал** (`terminal.rs`) — чёрный экран,
-прокрутка, палитра. **PS/2-клавиатура** (`keyboard.rs`) — прямой опрос i8042
-(порты 0x60/0x64), scancode set 1 → ASCII с Shift; UEFI ConIn выпилен (давал #GP
-после подмены GDT/IDT). **UEFI-обёртки** (`uefi.rs`) — ConOut для debug,
-Runtime Services для reboot/shutdown. **Оболочка** (`shell.rs`) — встроенные
-команды + планировщик + Barrel REPL. **Файловые syscalls** (16-23) —
-write/read/open/close/dup. **Магические syscall** (24-31) — print/println/input/
-ticks/cls/set_cursor/color/reboot. **Barrel** (`barrel.rs`) — встроенный
-скриптовый язык: переменные, арифметика, if/else, loop/while/break.
-**IDT + диагностика исключений** (`idt.rs`) и **устранён reboot-loop**: UEFI
-оставлял прерывания включёнными со своей IDT — после подмены нашей GDT первый же
-тик таймера давал тройную ошибку (немой ребут). Теперь `cli`+маска PIC в начале
-`kernel_main`, своя IDT, вход в ring3 с IF=0. Сборка ядра и загрузчика — **без
-предупреждений**.
+**Сделано (v0.3):** UEFI-загрузка + ELF, заморозка топологии, GDT/TSS, мост
+ring0↔ring3 (`syscall/sysret`), Round-Robin, синхронный IPC-рандеву,
+физический frame-allocator (bump), фреймбуфер + консоль, ELF-загрузчик,
+PS/2-клавиатура, UEFI-обёртки, оболочка с командами, Barrel REPL,
+IDT + диагностика исключений.
 
-⚠ Правки собраны (`cargo build` ядра и uefi_boot — чисто), но в QEMU ещё НЕ
-прогонялись (на машине разработки нет qemu/xorriso/OVMF) — нужен финальный
-runtime-smoke-test. Теперь при любом исключении CPU вместо ребута появится
-диагностика (вектор/errcode/RIP/CR2) в serial и на экране.
+**Сделано (v0.4 — текущий апгрейд):**
+- **Frame reclamation** (`frame.rs`): free-list + `free_frame()` —
+  при `exit` процесса освобождаются все его фреймы.
+- **Приватные PML4** (`spawn_initial_user`): каждый процесс имеет
+  собственную таблицу страниц. `make_user_accessible` удалён.
+- **APIC-таймер** (`apic.rs`): вытесняющий планировщик на векторе 0x20.
+- **Per-process FD tables** (`syscall.rs`): полноценные `open`/`close`/
+  `read`/`write`/`lseek`/`stat`/`dup`/`fcntl` с файлами через fs.
+- **ATA PIO driver** (`ata.rs`): прямой доступ к диску через порты I/O.
+- **Block filesystem** (`blockfs.rs`): persistent-слой с суперблоком/inode.
+- **Улучшенный userspace** (`userspace/sys_c/`): 40 syscall-обёрток,
+  itoa, strlen, mandelbrot-demo, linker script, ELF-линковка.
+- **Графические syscalls** (33-40): pixel/line/rect/circle/image/clear.
+- **ELF loader fix** (`elf.rs`): фреймы отслеживаются через `track_frame()`
+  для корректного освобождения при `exit`; .text — R+X, .data — RW.
+- **hwinfo** — команда вывода аппаратной информации заведена в shell dispatch.
+- **set_cursor и color syscalls** — реальный passthrough в терминал
+  (29/30: курсор row/col; 24-bit RGB fg/bg).
+- **Config → terminal wiring** (`terminal.rs`): цвета терминала загружаются
+  из конфигурации при инициализации; `set_font_scale` сохраняется в config.
+- **du** — реальный подсчёт размера файлов через рекурсивный обход ramfs.
+- **ELF page permissions** — сегменты PT_LOAD учитывают `p_flags`
+  (.text без W, .data с W).
+- **Help/manual system** (`documentation.rs`): 15 статей, `man <cmd>`
+  для 40+ команд, `info`/`ver` показывают подсистемы.
+- **Real kill/uptime/head/tail/grep** — kernel-level операции
+  (kill через `syscall::kill_process`, uptime через APIC tick count).
+- **sysmon (top)** — реальный uptime, использование памяти, switch_count,
+  информация о вытесняющем планировщике и APIC-таймере.
+- **Banner upgrade** — подсказки `info`, `man`, `barrel`, `top` в boot-логе.
 
-**Ключевые вехи (в порядке приоритета):**
-1. **Runtime-smoke-test** — прогнать `make run` на машине с QEMU/OVMF. Ожидается:
-   загрузка → boot-экран → лог `[CPU]/[IDT]/[SYS]` → баннер оболочки `pureos$`,
-   БЕЗ ребут-цикла. Если что-то падает — теперь виден вектор исключения.
-2. **Рекламация фреймов на `exit`** — сейчас bump без возврата; слой процесса
-   при выходе не отдаёт фреймы в пул. Нужен per-process учёт (или отдельный пул
-   на слой) для реального «испарения».
-3. **Приватные таблицы для `spawn_initial_user`** — начальные процессы всё ещё
-   делят boot cr3 (и `make_user_accessible` грубо помечает страницы ядра U/S —
-   дыра в изоляции, временно ради демо). `create_process` уже клонирует PML4;
-   свести оба пути к приватным таблицам. Разблокирует `share_memory`/`map_phys`.
-4. **Вытесняющий таймер (APIC)** — планировщик кооперативный, прерывания
-   выключены. Для вытеснения: настроить LAPIC-таймер, добавить его вектор в
-   `idt.rs`, только потом `sti`/IF=1 (см. инвариант о прерываниях в §5).
-5. **ROM/NVM-режим** — прописать `rom_base/rom_size` (сейчас = 0), исполнять
-   кристалл прямо из ROM/NVM.
-6. **Реальный userspace** (`userspace/`) вместо `user_demo`.
+⚠ Сборка (`cargo build` ядра и uefi_boot) — чисто, без ошибок.
+Предупреждения — только dead code и static_mut_refs (легаси от v0.3).
+Нужен runtime-smoke-test в QEMU.
+
+**Следующие вехи:**
+1. **Runtime-smoke-test** — `make run` на машине с QEMU/OVMF.
+2. **ROM/NVM-режим** — исполнять кристалл прямо из ROM/NVM.
+3. **Userspace runtime** — libc (musl/newlib port) для gcc/rust.
 
 ## 8. Правила работы с этим проектом
 

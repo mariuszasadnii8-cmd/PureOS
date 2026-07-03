@@ -54,11 +54,14 @@ pub struct ProcessControlBlock {
     pub(crate) layer_base: u64,
     pub(crate) layer_size: u64,
     pub(crate) next_free: u64,
+    pub(crate) frames_head: u64,
     pub(crate) ipc_buffer: u64,
     pub(crate) ipc_peer: u64,
     pub(crate) saved_rsp: u64,
     pub(crate) kernel_stack_top: u64,
     pub(crate) exit_code: u64,
+    pub(crate) switch_count: u64,
+    pub(crate) start_tick: u64,
 }
 
 impl ProcessControlBlock {
@@ -72,11 +75,14 @@ impl ProcessControlBlock {
             layer_base: 0,
             layer_size: 0,
             next_free: 0,
+            frames_head: 0,
             ipc_buffer: 0,
             ipc_peer: 0,
             saved_rsp: 0,
             kernel_stack_top: 0,
             exit_code: 0,
+            switch_count: 0,
+            start_tick: 0,
         }
     }
 
@@ -121,6 +127,78 @@ static mut USER_STACKS: [UserStack; MAX_PROCESSES] =
 pub(crate) static mut CURRENT_PROCESS_ID: u64 = 0;
 static mut PROCESS_TABLE_READY: bool = false;
 
+// ---------------------------------------------------------------------------
+// Per-process file descriptor tables
+// ---------------------------------------------------------------------------
+
+const MAX_FDS: usize = 16;
+
+#[derive(Copy, Clone, PartialEq)]
+pub(crate) enum FdKind {
+    Free,
+    ConsoleOut,
+    ConsoleIn,
+    File,
+}
+
+#[derive(Copy, Clone)]
+pub(crate) struct FdEntry {
+    pub kind: FdKind,
+    pub inode: u16,
+    pub offset: u64,
+    pub flags: u32,
+}
+
+impl FdEntry {
+    const fn free() -> Self {
+        Self { kind: FdKind::Free, inode: 0, offset: 0, flags: 0 }
+    }
+}
+
+static mut FD_TABLES: [[FdEntry; MAX_FDS]; MAX_PROCESSES] =
+    [const { [FdEntry::free(); MAX_FDS] }; MAX_PROCESSES];
+
+unsafe fn init_fd_table(pid: usize) {
+    let tbl = &mut FD_TABLES[pid];
+    tbl[0] = FdEntry { kind: FdKind::ConsoleIn, inode: 0, offset: 0, flags: 0 };
+    tbl[1] = FdEntry { kind: FdKind::ConsoleOut, inode: 0, offset: 0, flags: 0 };
+    tbl[2] = FdEntry { kind: FdKind::ConsoleOut, inode: 0, offset: 0, flags: 0 };
+    for i in 3..MAX_FDS {
+        tbl[i] = FdEntry::free();
+    }
+}
+
+unsafe fn find_free_fd(pid: usize) -> Option<u32> {
+    for i in 0..MAX_FDS {
+        if FD_TABLES[pid][i].kind == FdKind::Free {
+            return Some(i as u32);
+        }
+    }
+    None
+}
+
+// ---------------------------------------------------------------------------
+// Per-process frame tracking
+// ---------------------------------------------------------------------------
+
+/// Link an allocated physical frame into the current process's frame list.
+pub(crate) unsafe fn track_frame(pid: usize, phys: u64) {
+    let pcb = &mut PROCESS_TABLE[pid];
+    core::ptr::write_volatile(phys as *mut u64, pcb.frames_head);
+    pcb.frames_head = phys;
+}
+
+/// Free all frames tracked for a process.
+unsafe fn free_process_frames(pid: usize) {
+    let mut frame = PROCESS_TABLE[pid].frames_head;
+    while frame != 0 {
+        let next = core::ptr::read_volatile(frame as *const u64);
+        crate::frame::free_frame(frame);
+        frame = next;
+    }
+    PROCESS_TABLE[pid].frames_head = 0;
+}
+
 #[inline(always)]
 fn kernel_stack_top(index: usize) -> u64 {
     let base = unsafe { addr_of!(KERNEL_STACKS[index]) } as u64;
@@ -154,7 +232,11 @@ pub unsafe fn init_process_manager() {
         saved_rsp: 0,
         kernel_stack_top: kernel_stack_top(0),
         exit_code: 0,
+        frames_head: 0,
+        switch_count: 0,
+        start_tick: 0,
     };
+    init_fd_table(0);
     CURRENT_PROCESS_ID = 0;
     PROCESS_TABLE_READY = true;
 }
@@ -320,7 +402,11 @@ unsafe fn provision_pcb(i: usize, entry: u64, page_table_base: u64, user_stack: 
         saved_rsp,
         kernel_stack_top: kstack_top,
         exit_code: 0,
+        frames_head: 0,
+        switch_count: 0,
+        start_tick: TICK_COUNT,
     };
+    init_fd_table(i);
 }
 
 /// Подготовить PCB для процесса, загруженного из ELF (используется elf.rs).
@@ -351,12 +437,16 @@ pub(crate) unsafe fn provision_pcb_elf(
         saved_rsp,
         kernel_stack_top: kstack_top,
         exit_code: 0,
+        frames_head: 0,
+        switch_count: 0,
+        start_tick: TICK_COUNT,
     };
+    init_fd_table(slot);
 }
 
-/// Запустить первый пользовательский процесс в текущем (загрузочном) адресном
-/// пространстве. Код и стек помечаются доступными из ring 3.
-/// MILESTONE: до появления frame-allocator процессы делят адресное пространство.
+/// Запустить первый пользовательский процесс в ПРИВАТНОМ адресном пространстве.
+/// Создаёт собственную PML4, клонируя ядро из загрузочной, и отображает
+/// пользовательский код+стек в приватную таблицу с U/S битами.
 pub unsafe fn spawn_initial_user(entry: u64) -> i64 {
     crate::console::boot_msg(b"[SPAWN] find_free_slot...\n");
     let Some(i) = find_free_slot() else {
@@ -367,36 +457,51 @@ pub unsafe fn spawn_initial_user(entry: u64) -> i64 {
     crate::console::boot_msg(&[b'0' + i as u8]);
     crate::console::boot_msg(b"\n");
 
-    let cr3 = cpu::read_cr3();
+    // Клонировать загрузочную PML4 в приватную таблицу процесса.
+    clone_current_pml4_for(i);
+    let pml4 = process_pml4_phys(i);
     let stack_top = user_stack_top(i);
     crate::console::boot_msg(b"[SPAWN] provision_pcb...\n");
-    provision_pcb(i, entry, cr3, stack_top);
+    provision_pcb(i, entry, pml4, stack_top);
 
-    // Начальный процесс делит загрузочное адресное пространство (общий CR3). UEFI
-    // помечает страницы как supervisor, поэтому вход в ring 3 на код/стек демо без
-    // этого немедленно дал бы #PF. Явно отображаем нужные страницы в текущий PML4
-    // с правами user + writable там, где нужен стек.
-    // MILESTONE №3: заменить на приватные таблицы процесса.
+    // Код демо отображаем в приватную PML4 с U/S битами.
     let code_page = entry & !0xFFF;
     let code_end = (code_page + 0x2000) & !0xFFF;
     let mut code_va = code_page;
     while code_va < code_end {
-        if !cpu::map_page(cr3, code_va, code_va, false, true) {
+        let phys = match crate::frame::alloc_frame() {
+            Some(p) => p,
+            None => { crate::console::boot_msg(b"[SPAWN] OOM\n"); return ERR_OUT_OF_MEMORY; }
+        };
+        if !cpu::map_page(pml4, code_va, phys, false, true) {
             crate::console::boot_msg(b"[SPAWN] code map failed\n");
             return ERR_OUT_OF_MEMORY;
+        }
+        track_frame(i, phys);
+        // Скопировать код из текущей identity-map в свежий фрейм.
+        let src = code_va as *const u8;
+        let dst = phys as *mut u8;
+        for b in 0..0x1000usize {
+            core::ptr::write_volatile(dst.add(b), core::ptr::read_volatile(src.add(b)));
         }
         code_va += 0x1000;
     }
 
+    // Пользовательский стек отображаем в приватную PML4 с U/S+W.
     let stack_base = addr_of!(USER_STACKS[i]) as u64;
     let stack_start = stack_base & !0xFFF;
     let stack_end = (stack_base + USER_STACK_BYTES as u64 + 0xFFF) & !0xFFF;
     let mut stack_va = stack_start;
     while stack_va < stack_end {
-        if !cpu::map_page(cr3, stack_va, stack_va, true, true) {
+        let phys = match crate::frame::alloc_frame() {
+            Some(p) => p,
+            None => { crate::console::boot_msg(b"[SPAWN] OOM\n"); return ERR_OUT_OF_MEMORY; }
+        };
+        if !cpu::map_page(pml4, stack_va, phys, true, true) {
             crate::console::boot_msg(b"[SPAWN] stack map failed\n");
             return ERR_OUT_OF_MEMORY;
         }
+        track_frame(i, phys);
         stack_va += 0x1000;
     }
 
@@ -465,11 +570,10 @@ unsafe fn memory_allocate(size: u64, _flags: u64) -> i64 {
         let Some(phys) = crate::frame::alloc_frame() else {
             return ERR_OUT_OF_MEMORY;
         };
+        track_frame(pid, phys);
         if !cpu::map_page(pml4, va, phys, true, true) {
             return ERR_OUT_OF_MEMORY;
         }
-        // Слой отображается в адресное пространство текущего процесса, которое
-        // сейчас активно (CR3 == pml4), поэтому сбрасываем его трансляцию в TLB.
         cpu::invlpg(va);
         va += PAGE_SIZE;
     }
@@ -493,21 +597,6 @@ unsafe fn memory_free(addr: u64) -> i64 {
 
 static mut SCHEDULER_TICK: u64 = 0;
 
-/// Резидентный цикл процесса 0: планирует следующий runnable процесс, иначе спит.
-/// Между переключениями дёргает анимацию на фреймбуфере (доказательство жизни).
-/// Сейчас роль планировщика в процессе 0 выполняет `shell::run` (shell + RR);
-/// оставлено как «чистый» вариант планировщика без оболочки.
-#[allow(dead_code)]
-pub unsafe fn run_scheduler() -> ! {
-    loop {
-        let current = CURRENT_PROCESS_ID as usize;
-        match next_runnable_after(current) {
-            Some(next) => switch_context(current, next),
-            None => core::arch::asm!("hlt", options(nomem, nostack, preserves_flags)),
-        }
-    }
-}
-
 /// Запустить процесс `slot` из текущего (обычно shell, процесс 0) и вернуться,
 /// когда тот отдаст CPU или завершится (`exit` → `block_current` → назад к нам).
 /// Используется shell'ом для запуска скомпилированной программы синхронно.
@@ -522,12 +611,45 @@ pub unsafe fn run_slot(slot: usize) {
     switch_context(current, slot);
 }
 
+static mut TICK_COUNT: u64 = 0;
+static mut PREEMPT_QUANTUM: u64 = 0;
+
+/// Получить количество тиков системного таймера (для uptime и мониторинга).
+pub(crate) unsafe fn get_tick_count() -> u64 {
+    TICK_COUNT
+}
+
+/// Вызывается из APIC-таймера (IDT, вектор 0x20) при каждом тике.
+/// Реализует вытесняющий планировщик Round-Robin.
+pub unsafe fn timer_tick_handler() {
+    TICK_COUNT = TICK_COUNT.wrapping_add(1);
+    let current = CURRENT_PROCESS_ID as usize;
+    if current == 0 {
+        // Процесс 0 (shell/планировщик) не вытесняем.
+        return;
+    }
+    PREEMPT_QUANTUM = PREEMPT_QUANTUM.wrapping_add(1);
+    // Вытесняем каждые ~5 тиков (≈50ms при 100Hz).
+    if PREEMPT_QUANTUM >= 5 {
+        PREEMPT_QUANTUM = 0;
+        if let Some(next) = next_runnable_after(current) {
+            if next != current {
+                switch_context(current, next);
+            }
+        }
+    }
+}
+
 pub(crate) unsafe fn switch_context(prev: usize, next: usize) {
     if prev == next {
         return;
     }
     CURRENT_PROCESS_ID = next as u64;
     cpu::set_kernel_rsp(PROCESS_TABLE[next].kernel_stack_top);
+    PROCESS_TABLE[next].switch_count = PROCESS_TABLE[next].switch_count.wrapping_add(1);
+    if PROCESS_TABLE[next].start_tick == 0 {
+        PROCESS_TABLE[next].start_tick = TICK_COUNT;
+    }
 
     let prev_slot = addr_of_mut!(PROCESS_TABLE[prev].saved_rsp);
     let next_rsp = PROCESS_TABLE[next].saved_rsp;
@@ -562,9 +684,34 @@ unsafe fn exit_process(code: u64) -> i64 {
     let current = CURRENT_PROCESS_ID as usize;
     PROCESS_TABLE[current].state = ProcessState::Exited;
     PROCESS_TABLE[current].exit_code = code;
-    // Назад этот процесс уже не вернётся — планируем кого-то ещё навсегда.
+    // Освободить все физические фреймы процесса (слой испаряется).
+    free_process_frames(current);
+    // Сбросить FD table.
+    for i in 0..MAX_FDS {
+        FD_TABLES[current][i] = FdEntry::free();
+    }
+    // Назад этот процесс уже не вернётся.
     block_current(current);
     0
+}
+
+/// Убить процесс по PID (вызывается из команды kill).
+/// Освобождает фреймы, FD table, помечает как Exited.
+pub(crate) unsafe fn kill_process(pid: usize) -> bool {
+    if pid >= MAX_PROCESSES || pid == CURRENT_PROCESS_ID as usize {
+        return false;
+    }
+    let state = &PROCESS_TABLE[pid].state;
+    if matches!(state, ProcessState::Empty | ProcessState::Exited) {
+        return false;
+    }
+    PROCESS_TABLE[pid].state = ProcessState::Exited;
+    PROCESS_TABLE[pid].exit_code = 9;
+    free_process_frames(pid);
+    for i in 0..MAX_FDS {
+        FD_TABLES[pid][i] = FdEntry::free();
+    }
+    true
 }
 
 // ---------------------------------------------------------------------------
@@ -773,13 +920,19 @@ unsafe fn sys_cls() -> i64 {
 }
 
 /// 29: set_cursor(row, col) — установить позицию курсора
-unsafe fn sys_set_cursor(_row: u32, _col: u32) -> i64 {
+unsafe fn sys_set_cursor(row: u32, col: u32) -> i64 {
+    crate::terminal::set_cursor(row, col);
     0
 }
 
-/// 30: color(fg, bg) — установить цвета терминала (заглушка-демо)
-unsafe fn sys_color(fg: u32, _bg: u32) -> i64 {
-    fg as i64
+/// 30: color(fg, bg) — установить цвета терминала
+/// fg/bg: 24-bit RGB (0x00RRGGBB)
+unsafe fn sys_color(fg: u32, bg: u32) -> i64 {
+    crate::terminal::set_colors(
+        crate::framebuffer::Rgb((fg >> 16) as u8, (fg >> 8) as u8, fg as u8),
+        crate::framebuffer::Rgb((bg >> 16) as u8, (bg >> 8) as u8, bg as u8),
+    );
+    0
 }
 
 /// 31: reboot() — перезагрузка через UEFI Runtime Services
@@ -788,99 +941,221 @@ unsafe fn sys_reboot() -> i64 {
 }
 
 // ---------------------------------------------------------------------------
-// Файловые syscalls (MVP — Terminal I/O).
+// Файловые syscalls — полноценная реализация с per-process FD-таблицами.
 // ---------------------------------------------------------------------------
-
-// Простая таблица дескрипторов процесса.
-const MAX_FDS: usize = 16;
 
 /// Записать данные в дескриптор.
 /// fd=1 (stdout), fd=2 (stderr): пишет в терминал.
+/// fd=3+: пишет в открытый файл.
 unsafe fn sys_write(fd: u32, buf: u64, len: usize) -> i64 {
-    if fd != 1 && fd != 2 {
-        return ERR_UNSUPPORTED;
-    }
-    if len == 0 {
-        return 0;
-    }
-    // Проверить, что buf в адресном пространстве процесса
     let pid = CURRENT_PROCESS_ID as usize;
-    if !PROCESS_TABLE[pid].contains_range(buf, len) {
-        return ERR_INVALID_POINTER;
+    if fd as usize >= MAX_FDS { return ERR_UNSUPPORTED; }
+    if len == 0 { return 0; }
+    if !PROCESS_TABLE[pid].contains_range(buf, len) { return ERR_INVALID_POINTER; }
+
+    match FD_TABLES[pid][fd as usize].kind {
+        FdKind::ConsoleOut => {
+            for i in 0..len {
+                let ch = core::ptr::read_volatile((buf + i as u64) as *const u8);
+                crate::terminal::putchar(ch);
+            }
+            len as i64
+        }
+        FdKind::File => {
+            let inode = FD_TABLES[pid][fd as usize].inode;
+            let data = core::slice::from_raw_parts(buf as *const u8, len);
+            if crate::fs::write(inode, data) { len as i64 } else { -5 }
+        }
+        _ => ERR_UNSUPPORTED,
     }
-    // Побайтовый вывод в терминал через volatile
-    for i in 0..len {
-        let ch = core::ptr::read_volatile((buf + i as u64) as *const u8);
-        crate::terminal::putchar(ch);
-    }
-    len as i64
 }
 
 /// Прочитать данные из дескриптора.
 /// fd=0 (stdin): читает из буфера клавиатуры (неблокирующий).
+/// fd=3+: читает из открытого файла.
 unsafe fn sys_read(fd: u32, buf: u64, len: usize) -> i64 {
-    if fd != 0 {
-        return ERR_UNSUPPORTED;
-    }
-    if len == 0 {
-        return 0;
-    }
     let pid = CURRENT_PROCESS_ID as usize;
-    if !PROCESS_TABLE[pid].contains_range(buf, len) {
-        return ERR_INVALID_POINTER;
-    }
-    // Неблокирующее чтение клавиатуры
-    let mut count: i64 = 0;
-    while count < len as i64 {
-        if let Some(ch) = crate::keyboard::read_key() {
-            core::ptr::write_volatile((buf + count as u64) as *mut u8, ch);
-            count += 1;
-        } else {
-            break;
+    if fd as usize >= MAX_FDS { return ERR_UNSUPPORTED; }
+    if len == 0 { return 0; }
+    if !PROCESS_TABLE[pid].contains_range(buf, len) { return ERR_INVALID_POINTER; }
+
+    match FD_TABLES[pid][fd as usize].kind {
+        FdKind::ConsoleIn => {
+            let mut count: i64 = 0;
+            while count < len as i64 {
+                if let Some(ch) = crate::keyboard::read_key() {
+                    core::ptr::write_volatile((buf + count as u64) as *mut u8, ch);
+                    count += 1;
+                } else {
+                    break;
+                }
+            }
+            if count == 0 { -11 } else { count }
         }
-    }
-    // Если ни одного байта, возвращаем -EWOULDBLOCK (-11)
-    if count == 0 {
-        -11
-    } else {
-        count
+        FdKind::File => {
+            let inode = FD_TABLES[pid][fd as usize].inode;
+            let off = FD_TABLES[pid][fd as usize].offset as usize;
+            let data = crate::fs::read(inode);
+            let avail = data.len().saturating_sub(off);
+            let to_copy = len.min(avail);
+            for i in 0..to_copy {
+                core::ptr::write_volatile((buf + i as u64) as *mut u8, data[off + i]);
+            }
+            FD_TABLES[pid][fd as usize].offset = (off + to_copy) as u64;
+            to_copy as i64
+        }
+        _ => ERR_UNSUPPORTED,
     }
 }
 
-/// Открыть псевдо-устройство по пути.
-/// Пока поддерживает только "/dev/console" (возвращает FD 1).
-unsafe fn sys_open(_path: u64, _flags: u64) -> i64 {
-    // В MVP — всегда возвращаем fd=1 (консоль)
-    // При полной реализации нужно копировать строку из userspace
-    1
+/// Открыть файл/устройство по пути.
+/// Флаги: 0=O_RDONLY, 1=O_WRONLY, 2=O_RDWR
+/// Поддерживает:
+///   "/dev/console" — консоль (fd=1)
+///   "/dev/stdin"   — клавиатура (fd=0)
+///   произвольный путь в ФС
+unsafe fn sys_open(path_ptr: u64, flags: u64) -> i64 {
+    let pid = CURRENT_PROCESS_ID as usize;
+    // Копировать строку пути из userspace.
+    let mut path_buf = [0u8; 256];
+    let mut path_len = 0usize;
+    loop {
+        let ch = core::ptr::read_volatile((path_ptr + path_len as u64) as *const u8);
+        if ch == 0 || path_len >= 255 { break; }
+        path_buf[path_len] = ch;
+        path_len += 1;
+    }
+    if path_len == 0 { return ERR_INVALID_POINTER; }
+
+    let path = &path_buf[..path_len];
+
+    // Специальные устройства
+    if path == b"/dev/console" || path == b"/dev/stdout" {
+        let fd = find_free_fd(pid).unwrap_or(1);
+        FD_TABLES[pid][fd as usize] = FdEntry {
+            kind: FdKind::ConsoleOut,
+            inode: 0, offset: 0, flags: flags as u32,
+        };
+        return fd as i64;
+    }
+    if path == b"/dev/stdin" || path == b"/dev/kbd" {
+        let fd = find_free_fd(pid).unwrap_or(0);
+        FD_TABLES[pid][fd as usize] = FdEntry {
+            kind: FdKind::ConsoleIn,
+            inode: 0, offset: 0, flags: flags as u32,
+        };
+        return fd as i64;
+    }
+
+    // Файл в ФС
+    let node = match crate::fs::resolve(path) {
+        Some(n) if crate::fs::kind(n) == crate::fs::Kind::File => n,
+        _ => { return ERR_INVALID_POINTER; }
+    };
+    let fd = match find_free_fd(pid) {
+        Some(f) => f,
+        None => return ERR_NO_CAPACITY,
+    };
+    FD_TABLES[pid][fd as usize] = FdEntry {
+        kind: FdKind::File,
+        inode: node,
+        offset: 0,
+        flags: flags as u32,
+    };
+    fd as i64
 }
 
 /// Закрыть дескриптор.
-unsafe fn sys_close(_fd: u32) -> i64 {
-    0 // no-op в MVP
+unsafe fn sys_close(fd: u32) -> i64 {
+    let pid = CURRENT_PROCESS_ID as usize;
+    if fd as usize >= MAX_FDS { return ERR_UNSUPPORTED; }
+    if FD_TABLES[pid][fd as usize].kind == FdKind::Free { return ERR_INVALID_POINTER; }
+    FD_TABLES[pid][fd as usize] = FdEntry::free();
+    0
 }
 
 /// Переместить указатель в файле.
-unsafe fn sys_lseek(_fd: u32, _offset: i64, _whence: u32) -> i64 {
-    ERR_UNSUPPORTED // нет файловой системы
-}
-
-/// Получить информацию о файле.
-unsafe fn sys_stat(_path: u64, _stat_buf: u64) -> i64 {
-    ERR_UNSUPPORTED
-}
-
-/// Скопировать дескриптор.
-unsafe fn sys_dup(fd: u32) -> i64 {
-    if fd > MAX_FDS as u32 {
-        return ERR_UNSUPPORTED;
+/// whence: 0=SEEK_SET, 1=SEEK_CUR, 2=SEEK_END
+unsafe fn sys_lseek(fd: u32, offset: i64, whence: u32) -> i64 {
+    let pid = CURRENT_PROCESS_ID as usize;
+    if fd as usize >= MAX_FDS { return ERR_UNSUPPORTED; }
+    let entry = &mut FD_TABLES[pid][fd as usize];
+    match entry.kind {
+        FdKind::File => {
+            let size = crate::fs::size_of(entry.inode) as i64;
+            let mut new_off = match whence {
+                0 => offset,
+                1 => entry.offset as i64 + offset,
+                2 => size + offset,
+                _ => return ERR_INVALID_POINTER,
+            };
+            if new_off < 0 { new_off = 0; }
+            if new_off > size { new_off = size; }
+            entry.offset = new_off as u64;
+            entry.offset as i64
+        }
+        _ => ERR_UNSUPPORTED,
     }
-    fd as i64 // MVP: возвращаем тот же дескриптор
+}
+
+/// Получить информацию о файле (stat).
+/// buf указывает на структуру Stat в userspace (dev, ino, mode, size, ...)
+unsafe fn sys_stat(path_ptr: u64, stat_buf: u64) -> i64 {
+    let pid = CURRENT_PROCESS_ID as usize;
+    let mut path_buf = [0u8; 256];
+    let mut path_len = 0usize;
+    loop {
+        let ch = core::ptr::read_volatile((path_ptr + path_len as u64) as *const u8);
+        if ch == 0 || path_len >= 255 { break; }
+        path_buf[path_len] = ch;
+        path_len += 1;
+    }
+    if path_len == 0 { return ERR_INVALID_POINTER; }
+
+    let path = &path_buf[..path_len];
+    let node = match crate::fs::resolve(path) {
+        Some(n) => n,
+        None => return ERR_INVALID_POINTER,
+    };
+    if stat_buf == 0 { return 0; }
+    if !PROCESS_TABLE[pid].contains_range(stat_buf, 32) { return ERR_INVALID_POINTER; }
+
+    let kind = crate::fs::kind(node);
+    let mode: u32 = if kind == crate::fs::Kind::Dir { 0x41ED } else { 0x81A4 };
+    let size = crate::fs::size_of(node);
+    // Схема stat: [dev:8][ino:8][mode:4][size:8][pad:4] = 32 bytes
+    core::ptr::write_volatile(stat_buf as *mut u64, 0);        // dev
+    core::ptr::write_volatile((stat_buf + 8) as *mut u64, node as u64); // ino
+    core::ptr::write_volatile((stat_buf + 16) as *mut u32, mode);
+    core::ptr::write_volatile((stat_buf + 20) as *mut u64, size as u64);
+    0
+}
+
+/// Скопировать дескриптор — найти свободный слот и скопировать туда запись.
+unsafe fn sys_dup(fd: u32) -> i64 {
+    let pid = CURRENT_PROCESS_ID as usize;
+    if fd as usize >= MAX_FDS { return ERR_UNSUPPORTED; }
+    if FD_TABLES[pid][fd as usize].kind == FdKind::Free { return ERR_INVALID_POINTER; }
+    let new_fd = match find_free_fd(pid) {
+        Some(f) => f,
+        None => return ERR_NO_CAPACITY,
+    };
+    FD_TABLES[pid][new_fd as usize] = FD_TABLES[pid][fd as usize];
+    new_fd as i64
 }
 
 /// Управление дескриптором.
-unsafe fn sys_fcntl(_fd: u32, _cmd: u32, _arg: u64) -> i64 {
-    ERR_UNSUPPORTED
+/// cmd: 1=F_DUPFD, 2=F_GETFD, 3=F_SETFD, 4=F_GETFL, 5=F_SETFL
+unsafe fn sys_fcntl(fd: u32, cmd: u32, arg: u64) -> i64 {
+    let pid = CURRENT_PROCESS_ID as usize;
+    if fd as usize >= MAX_FDS { return ERR_UNSUPPORTED; }
+    if FD_TABLES[pid][fd as usize].kind == FdKind::Free { return ERR_INVALID_POINTER; }
+    match cmd {
+        1 => sys_dup(fd),      // F_DUPFD
+        2 => FD_TABLES[pid][fd as usize].flags as i64, // F_GETFD
+        3 => { FD_TABLES[pid][fd as usize].flags = arg as u32; 0 } // F_SETFD
+        _ => ERR_UNSUPPORTED,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -949,17 +1224,17 @@ unsafe fn sys_draw_rect(arg1: u64, arg2: u64, arg3: u64) -> i64 {
 }
 
 /// 37: draw_circle(x, y, radius, color, fill) — нарисовать круг
-/// args: arg1=(x<<16)|y, arg2=(fill<<32)|(radius<<16)|color
+/// args: arg1=(x<<16)|y, arg2=(fill<<40)|(radius<<24)|(color&0xFFFFFF)
 unsafe fn sys_draw_circle(arg1: u64, arg2: u64, _arg3: u64) -> i64 {
     let x = (arg1 >> 16) as u32;
     let y = (arg1 & 0xFFFF) as u32;
-    let fill = (arg2 >> 32) != 0;
-    let radius = ((arg2 >> 16) & 0xFFFF) as u32;
-    let color = arg2 & 0xFFFF;
+    let fill = (arg2 >> 40) != 0;
+    let radius = ((arg2 >> 24) & 0xFFFF) as u32;
+    let color = arg2 & 0xFFFFFF;
     
-    let r = ((color >> 8) & 0xF) as u8;
-    let g = (color & 0xF) as u8;
-    let b = 0;
+    let r = ((color >> 16) & 0xFF) as u8;
+    let g = ((color >> 8) & 0xFF) as u8;
+    let b = (color & 0xFF) as u8;
     
     crate::graphics::draw_circle(x, y, radius, r, g, b, fill);
     0
@@ -996,7 +1271,7 @@ unsafe fn sys_clear_screen(color: u64) -> i64 {
 
 /// 40: set_font_scale(scale) — установить масштаб шрифта
 unsafe fn sys_set_font_scale(scale: u64) -> i64 {
-    // TODO: реализовать сохранение масштаба
+    crate::config::set_font_scale(scale as u32);
     0
 }
 

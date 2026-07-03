@@ -5,8 +5,11 @@ use core::arch::naked_asm;
 use core::panic::PanicInfo;
 use core::ptr::addr_of_mut;
 
+mod apic;
+mod ata;
 mod barrel;
 mod barrelc;
+mod blockfs;
 mod commands;
 mod config;
 mod console;
@@ -17,6 +20,7 @@ mod elf;
 mod ephemeral;
 mod font;
 mod fs;
+mod image;
 mod frame;
 mod framebuffer;
 mod graphics;
@@ -25,12 +29,18 @@ mod idt;
 mod installer;
 mod keyboard;
 mod shell;
+mod smp;
 mod snake_game;
 mod syscall;
 mod sysmon;
 mod terminal;
 mod test_runner;
 mod uefi;
+mod wallpaper;
+mod jpeg;
+mod gif;
+mod net;
+mod usb;
 
 /// Кристаллическая структура топологии ядра (замораживается при старте).
 pub struct CrystalTopology {
@@ -97,6 +107,11 @@ pub extern "win64" fn kernel_main(boot_info: *const PureBootInfo) -> ! {
         };
         hw::init(ram_b, ram_s);
 
+        // Инициализация ATA-диска и блочной ФС (персистентное хранилище).
+        console::boot_msg(b"[ATA] Init disk...\n");
+        blockfs::init();
+        console::boot_msg(b"[ATA] OK\n");
+
         // Инициализация фреймбуфера (GOP от загрузчика) — для boot-экрана
         let info = &*boot_info;
         console::serial_puts(b"[KERNEL] boot-info ptr=0x");
@@ -152,6 +167,10 @@ pub extern "win64" fn kernel_main(boot_info: *const PureBootInfo) -> ! {
         idt::load();
         console::boot_msg(b"[IDT] OK\n");
 
+        // APIC-таймер отключен: ядро использует кооперативный планировщик,
+        // прерывания остаются выключенными (cli) для избежания конфликтов с UEFI.
+        console::boot_msg(b"[APIC] Skipping APIC timer (cooperative scheduler)\n");
+
         // Process manager
         console::boot_msg(b"[SYS] Init process table...\n");
         syscall::init_process_manager();
@@ -169,6 +188,20 @@ pub extern "win64" fn kernel_main(boot_info: *const PureBootInfo) -> ! {
 
         // Показать аккуратный boot-баннер и передать управление оболочке,
         // чтобы QEMU отображал живой консольный промпт, а не статичную заглушку.
+        // SMP: инициализация многопроцессорности.
+        console::boot_msg(b"[SMP] Init symmetric multiprocessing...\n");
+        smp::init();
+        console::boot_msg(b"[SMP] OK\n");
+
+        // USB: EHCI + HID клавиатура
+        console::boot_msg(b"[USB] Init USB subsystem...\n");
+        usb::init();
+        console::boot_msg(b"[USB] OK\n");
+
+        // Первый опрос USB для обнаружения устройств
+        console::boot_msg(b"[USB] Polling for devices...\n");
+        usb::poll();
+
         console::boot_msg(b"[SYS] Console ready. Entering shell.\n");
         terminal::draw_boot_banner();
         shell::run();
@@ -190,7 +223,8 @@ unsafe fn freeze_topology(boot_info: *const PureBootInfo) {
     if info.magic != BOOT_MAGIC { return; }
 
     let topo = addr_of_mut!(TOPOLOGY);
-    (*topo).cpu_count = 1;
+    let n = crate::hw::cpu_threads() as usize;
+    (*topo).cpu_count = if n > 0 { n } else { 1 };
     (*topo).ram_base = info.heap_base;
     (*topo).ram_size = info.heap_size;
     (*topo).rom_base = 0;

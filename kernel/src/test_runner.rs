@@ -72,6 +72,9 @@ pub unsafe fn run() {
     terminal::write(b"Press any key to continue...\n");
 
     loop {
+        // Try USB keyboard first, fallback to PS/2
+        crate::usb::poll();
+        if crate::usb::key_read().is_some() { break; }
         keyboard::poll();
         if keyboard::read_key().is_some() { break; }
         core::arch::asm!("pause", options(nomem, nostack, preserves_flags));
