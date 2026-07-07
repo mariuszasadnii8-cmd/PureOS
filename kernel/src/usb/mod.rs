@@ -149,6 +149,11 @@ pub unsafe fn mouse_hide() {
     hid::hide_cursor();
 }
 
+/// Показать курсор (сохранить фон + нарисовать).
+pub unsafe fn mouse_show() {
+    hid::show_cursor();
+}
+
 /// Получить позицию курсора.
 pub fn mouse_pos() -> (i32, i32) {
     hid::mouse_pos()
@@ -157,6 +162,16 @@ pub fn mouse_pos() -> (i32, i32) {
 /// Получить кнопки мыши.
 pub fn mouse_buttons() -> u8 {
     hid::mouse_buttons()
+}
+
+/// Установить позицию курсора (из PS/2 мыши).
+pub unsafe fn mouse_set_pos(x: i32, y: i32) {
+    hid::mouse_set_pos(x, y);
+}
+
+/// Установить кнопки мыши (из PS/2 мыши).
+pub unsafe fn mouse_set_buttons(buttons: u8) {
+    hid::mouse_set_buttons(buttons);
 }
 
 /// Проверить, готов ли USB.
@@ -282,23 +297,52 @@ unsafe fn cmd_usb_test() {
     }
 }
 
-/// Interactive mouse test.
-pub unsafe fn cmd_mouse(_args: &[u8]) {
-    terminal::write(b"Mouse state:\n");
-    terminal::write(b"  Position: ");
-    let (x, y) = hid::mouse_pos();
-    terminal::write_num(x as u64);
-    terminal::write(b", ");
-    terminal::write_num(y as u64);
-    terminal::write(b"\n  Buttons: ");
-    let b = hid::mouse_buttons();
-    if b & 1 != 0 { terminal::write(b"LEFT "); }
-    if b & 2 != 0 { terminal::write(b"RIGHT "); }
-    if b & 4 != 0 { terminal::write(b"MIDDLE "); }
-    if b == 0 { terminal::write(b"none"); }
-    terminal::write(b"\n  Cursor visible: ");
-    terminal::write(b"yes");
-    terminal::write(b"\n");
+/// Interactive mouse test / config.
+pub unsafe fn cmd_mouse(args: &[u8]) {
+    let trimmed = trim(args);
+    if trimmed == b"reset" {
+        terminal::write(b"Resetting PS/2 mouse...\n");
+        crate::ps2mouse::reset();
+        terminal::write(b"PS/2 mouse re-initialized.\n");
+        hid::init_mouse();
+        hid::show_cursor();
+        return;
+    }
+    if trimmed == b"on" || trimmed == b"enable" {
+        crate::ps2mouse::set_enabled(true);
+        terminal::write(b"PS/2 mouse enabled.\n");
+        return;
+    }
+    if trimmed == b"off" || trimmed == b"disable" {
+        crate::ps2mouse::set_enabled(false);
+        terminal::write(b"PS/2 mouse disabled.\n");
+        return;
+    }
+    if trimmed == b"status" || trimmed.is_empty() {
+        terminal::write(b"Mouse state:\n");
+        terminal::write(b"  Enabled: ");
+        if crate::ps2mouse::is_enabled() { terminal::write(b"yes"); } else { terminal::write(b"no"); }
+        terminal::write(b"\n  Position: ");
+        let (x, y) = hid::mouse_pos();
+        terminal::write_num(x as u64);
+        terminal::write(b", ");
+        terminal::write_num(y as u64);
+        terminal::write(b"\n  Buttons: ");
+        let b = hid::mouse_buttons();
+        if b & 1 != 0 { terminal::write(b"LEFT "); }
+        if b & 2 != 0 { terminal::write(b"RIGHT "); }
+        if b & 4 != 0 { terminal::write(b"MIDDLE "); }
+        if b == 0 { terminal::write(b"none"); }
+        terminal::write(b"\n  PS/2 init: ");
+        if crate::ps2mouse::is_initialized() {
+            terminal::write(b"ok");
+        } else {
+            terminal::write(b"failed");
+        }
+        terminal::write(b"\n  Cursor visible: yes\n");
+        return;
+    }
+    terminal::write(b"usage: mouse [on|off|status|reset]\n");
 }
 
 /// Trim leading/trailing whitespace.

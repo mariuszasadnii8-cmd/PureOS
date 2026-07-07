@@ -14,6 +14,9 @@ use uefi::{cstr16, Status};
 
 const KERNEL_PATH: &uefi::CStr16 = cstr16!("\\EFI\\PUREOS\\KERNEL.ELF");
 const LOAD_GRANULARITY: usize = 4096;
+/// 4 GiB — целевой размер пула фреймов для ядра (будет уменьшаться при нехватке).
+const FRAME_POOL_TARGET_PAGES: usize = (4 * 1024 * 1024 * 1024) / 4096; // 1_048_576
+const FRAME_POOL_MIN_PAGES: usize = 16 * 1024; // 64 MiB fallback
 
 fn serial_write(s: &str) {
     for &byte in s.as_bytes() {
@@ -76,10 +79,13 @@ pub struct PureBootInfo {
     system_table: u64,
     /// EFI_SIMPLE_TEXT_INPUT_PROTOCOL* — для клавиатуры без PS/2
     con_in: u64,
+    /// Общий объём доступной оперативной памяти (по UEFI memory map).
+    total_ram: u64,
 }
 
-/// Размер пула физических фреймов для ядра: 64 MiB (16384 страницы по 4 KiB).
-const FRAME_POOL_PAGES: usize = 16 * 1024;
+/// Устаревшая константа — используем FRAME_POOL_TARGET_PAGES.
+/// Оставлено для обратной совместимости, не используется.
+const _FRAME_POOL_LEGACY: usize = 16 * 1024;
 
 #[entry]
 fn efi_main(image: Handle, mut system_table: SystemTable<Boot>) -> Status {
@@ -312,17 +318,11 @@ fn build_boot_info(
         PixelFormat::BltOnly => 4,
     };
 
-    // Зарезервировать у UEFI непрерывный пул физпамяти под frame-allocator ядра.
-    // ExitBootServices не вызываем, поэтому регион остаётся за нами. При неудаче
-    // передаём 0/0 — ядро деградирует до пустого пула (alloc → OOM), без падения.
-    let (heap_base, heap_size) = match boot_services.allocate_pages(
-        AllocateType::AnyPages,
-        MemoryType::LOADER_DATA,
-        FRAME_POOL_PAGES,
-    ) {
-        Ok(addr) => (addr, (FRAME_POOL_PAGES * LOAD_GRANULARITY) as u64),
-        Err(_) => (0, 0),
-    };
+    // ----------------------------------------------------------------
+    // 1) Сканируем UEFI memory map: считаем total_ram и пытаемся
+    //    выделить максимально возможный непрерывный пул фреймов.
+    // ----------------------------------------------------------------
+    let (heap_base, heap_size, total_ram) = allocate_frame_pool(boot_services);
 
     let (con_in_val, st_val) = {
         let st = system_table.as_ptr();
@@ -346,6 +346,7 @@ fn build_boot_info(
             heap_size,
             system_table: st_val,
             con_in: con_in_val,
+            total_ram,
         });
 
         serial_write("[BOOT] boot-info ptr=");
@@ -353,9 +354,130 @@ fn build_boot_info(
         serial_write(" magic=");
         write_hex(boot_info_ptr.read().magic);
         serial_write("\n");
+        serial_write("[BOOT] Frame pool: ");
+        write_dec(heap_size / (1024 * 1024));
+        serial_write(" MiB, Total RAM: ");
+        write_dec(total_ram / (1024 * 1024));
+        serial_write(" MiB\n");
     }
 
     boot_info_ptr.cast_const()
+}
+
+/// Сканировать UEFI memory map, подсчитать total_ram, выделить
+/// максимальный непрерывный пул фреймов для ядра.
+fn allocate_frame_pool(boot_services: &BootServices) -> (u64, u64, u64) {
+    // --- Попытка 1: через UEFI memory map (точнее, больше памяти) ---
+    let (mmap_size, total_pages) = match scan_memory_map(boot_services) {
+        Some((s, p)) => (s, p),
+        None => return simple_alloc_fallback(boot_services),
+    };
+
+    let total_ram = total_pages * 4096;
+    let target_pages = mmap_size.min(FRAME_POOL_TARGET_PAGES);
+
+    serial_write("[BOOT] Memory map: ");
+    write_dec(total_pages as u64);
+    serial_write(" free pages, targeting ");
+    write_dec(target_pages as u64);
+    serial_write(" for pool\n");
+
+    // Пытаемся выделить пул нужного размера из свободной памяти.
+    // Если не получится — падаем к последовательным меньшим попыткам.
+    let sizes = [
+        target_pages,
+        target_pages / 2,
+        target_pages / 4,
+        target_pages / 8,
+        (256 * 1024 * 1024) / 4096,   // 256 MiB
+        (128 * 1024 * 1024) / 4096,   // 128 MiB
+        (64 * 1024 * 1024) / 4096,    // 64 MiB (оригинал)
+        FRAME_POOL_MIN_PAGES,          // 64 MiB fallback
+    ];
+
+    for &pages in &sizes {
+        if pages == 0 { continue; }
+        // Пул обязан быть ниже 4GB — ядро использует identity-map (phys == virt)
+        // для доступа к фреймам. UEFI на реальном железе НЕ отображает память
+        // выше 4GB в свои страничные таблицы.
+        match boot_services.allocate_pages(
+            AllocateType::MaxAddress(0xFFFF_FFFF),
+            MemoryType::LOADER_DATA,
+            pages,
+        ) {
+            Ok(addr) => {
+                serial_write("[BOOT] Allocated pool: ");
+                write_dec(((pages * 4096) / (1024 * 1024)) as u64);
+                serial_write(" MiB at 0x");
+                write_hex(addr);
+                serial_write("\n");
+                return (addr, (pages * 4096) as u64, total_ram);
+            }
+            Err(_) => {
+                serial_write("[BOOT] Failed to allocate ");
+                write_dec(((pages * 4096) / (1024 * 1024)) as u64);
+                serial_write(" MiB below 4GB, trying smaller...\n");
+            }
+        }
+    }
+
+    serial_write("[BOOT] WARNING: No frame pool allocated!\n");
+    (0, 0, total_ram)
+}
+
+/// Сканировать UEFI memory map: вернуть (самый_большой_свободный_кусок_в_страницах,
+/// всего_свободных_страниц). Если API недоступен — None.
+fn scan_memory_map(boot_services: &BootServices) -> Option<(usize, u64)> {
+    // Получить размер буфера для memory map
+    let mm_size = boot_services.memory_map_size();
+    if mm_size.map_size < 32 {
+        return None;
+    }
+
+    // Выделить буфер через UEFI pool
+    let buf_size = mm_size.map_size + 2 * mm_size.entry_size;
+    let buf = boot_services.allocate_pool(MemoryType::LOADER_DATA, buf_size).ok()?;
+    let buf_slice = unsafe { core::slice::from_raw_parts_mut(buf as *mut u8, buf_size) };
+
+    // Получить memory map
+    let mmap = boot_services.memory_map(buf_slice).ok()?;
+
+    let mut total_free_pages: u64 = 0;
+    let mut best_chunk_pages: usize = 0;
+
+    for desc in mmap.entries() {
+        if desc.ty == MemoryType::CONVENTIONAL {
+            total_free_pages += desc.page_count;
+            let chunk = desc.page_count as usize;
+            if chunk > best_chunk_pages {
+                best_chunk_pages = chunk;
+            }
+        }
+    }
+
+    Some((best_chunk_pages, total_free_pages))
+}
+
+/// Fallback: без memory map просто пробуем стандартные размеры.
+fn simple_alloc_fallback(boot_services: &BootServices) -> (u64, u64, u64) {
+    let sizes = [
+        (512 * 1024 * 1024) / 4096,   // 512 MiB
+        (256 * 1024 * 1024) / 4096,   // 256 MiB
+        (128 * 1024 * 1024) / 4096,   // 128 MiB
+        FRAME_POOL_MIN_PAGES,          // 64 MiB
+    ];
+
+    for &pages in &sizes {
+        if let Ok(addr) = boot_services.allocate_pages(
+            AllocateType::MaxAddress(0xFFFF_FFFF),
+            MemoryType::LOADER_DATA,
+            pages,
+        ) {
+            let size = (pages * 4096) as u64;
+            return (addr, size, size); // total_ram ≈ выделенному
+        }
+    }
+    (0, 0, 0)
 }
 
 unsafe fn boot_kernel(entry: u64, boot_info: *const PureBootInfo) -> ! {

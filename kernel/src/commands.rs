@@ -59,7 +59,6 @@ pub unsafe fn cmd_help() {
     terminal::write(b"  echo <text>           print text\n");
     terminal::write(b"  history               command history\n");
     terminal::write(b"  man [topic]           built-in documentation\n");
-    terminal::write(b"  snake                 play Snake game\n");
     terminal::write(b"  install               launch installer\n");
 
     terminal::write(b"\n--- Network ---\n");
@@ -87,6 +86,36 @@ pub unsafe fn cmd_help() {
     terminal::write(b"  theme [name]          terminal color theme\n");
     terminal::write(b"  font [name|n]         set font/scale\n");
     terminal::write(b"  desktop               desktop layer manager\n");
+
+    terminal::write(b"\n--- Visual ---\n");
+    terminal::write(b"  glass [0|1|2|3]       glassmorphism effect\n");
+    terminal::write(b"  rainbow [text]        rainbow-colored text\n");
+    terminal::write(b"  wallpaper [name|load] desktop wallpaper\n");
+    terminal::write(b"  theme [name]          terminal color theme\n");
+    terminal::write(b"  font [name|n]         set font/scale\n");
+    terminal::write(b"  desktop               desktop layer manager\n");
+
+    terminal::write(b"\n--- Demos / Fun ---\n");
+    terminal::write(b"  snake                 classic Snake game (arrows/WASD)\n");
+    terminal::write(b"  matrix                Matrix digital rain\n");
+    terminal::write(b"  mandelbrot            Mandelbrot fractal\n");
+    terminal::write(b"  starfield             3D starfield simulation\n");
+    terminal::write(b"  fire                  classic fire effect\n");
+    terminal::write(b"  bounce                bouncing PUREOS logo\n");
+    terminal::write(b"  rain                  rain effect\n");
+    terminal::write(b"  snow                  snowfall effect\n");
+    terminal::write(b"  kaleidoscope          colorful kaleidoscope\n");
+    terminal::write(b"  plasma                colorful plasma effect\n");
+    terminal::write(b"  gol                   Conway's Game of Life\n");
+    terminal::write(b"  tunnel                psychedelic tunnel\n");
+    terminal::write(b"  cube3d                rotating 3D wireframe cube\n");
+    terminal::write(b"  donut                 rotating 3D torus (z-buffer)\n");
+    terminal::write(b"  demoloop              run all demos in a loop\n");
+    terminal::write(b"  play [notes]          play sound (music)\n");
+    terminal::write(b"  volume [0..100]       sound volume control\n");
+    terminal::write(b"  sound [on|off]        toggle sound\n");
+    terminal::write(b"  beep [freq] [ms]      PC speaker beep\n");
+    terminal::write(b"  clock                 read RTC clock\n");
 
     terminal::write(b"\n--- Permissions ---\n");
     terminal::write(b"  sudo <cmd>            run as superuser\n");
@@ -715,7 +744,11 @@ pub unsafe fn cmd_hwinfo() {
     cmd_cpuinfo();
     terminal::write(b"\n-- Memory --\n");
     let s = crate::frame::stats();
+    let total = crate::frame::total_physical_memory();
+    terminal::write(b"total RAM  : "); terminal::write_num(total / (1024 * 1024)); terminal::write(b" MiB\n");
     terminal::write(b"frame pool : "); terminal::write_num(s.total_bytes / (1024 * 1024)); terminal::write(b" MiB\n");
+    terminal::write(b"used       : "); terminal::write_num(s.used_bytes / (1024 * 1024)); terminal::write(b" MiB\n");
+    terminal::write(b"free       : "); terminal::write_num(s.free_bytes / (1024 * 1024)); terminal::write(b" MiB\n");
     terminal::write(b"\n-- PCI --\n");
     cmd_lspci();
 }
@@ -1045,28 +1078,8 @@ pub unsafe fn cmd_wallpaper(args: &[u8]) {
 }
 
 pub unsafe fn cmd_desktop(args: &[u8]) {
-    terminal::write(b"PureOS Desktop Environment (lightweight)\n");
-    terminal::write(b"  Loading desktop...\n");
-
-    // 1. Set wallpaper to gradient
-    crate::wallpaper::set_wallpaper_by_name(b"gradient");
-
-    // 2. Draw a simple taskbar at the bottom
-    let fb_w = crate::framebuffer::width();
-    let fb_h = crate::framebuffer::height();
-    if fb_h >= 30 {
-        crate::framebuffer::fill_rect(0, fb_h - 24, fb_w, 24, crate::framebuffer::Rgb(20, 20, 30));
-        // Draw clock area
-        crate::framebuffer::fill_rect(fb_w - 80, fb_h - 24, 80, 24, crate::framebuffer::Rgb(30, 30, 40));
-        // Draw some "icons" (colored rectangles)
-        crate::framebuffer::fill_rect(4, fb_h - 20, 16, 16, crate::framebuffer::Rgb(80, 200, 80));
-        crate::framebuffer::fill_rect(24, fb_h - 20, 16, 16, crate::framebuffer::Rgb(80, 80, 200));
-        crate::framebuffer::fill_rect(44, fb_h - 20, 16, 16, crate::framebuffer::Rgb(200, 80, 80));
-    }
-
-    terminal::write(b"  Desktop ready.\n");
-    terminal::write(b"  Press any key to return to shell...\n");
     let _ = args;
+    crate::desktop::run();
 }
 
 pub unsafe fn cmd_theme(args: &[u8]) {
@@ -1274,4 +1287,238 @@ pub unsafe fn cmd_chown(args: &[u8]) {
     terminal::write(b"owner changed: ");
     terminal::write(args);
     terminal::write(b"\n");
+}
+
+/// Glassmorphism: включить/выключить/установить уровень стеклянного эффекта.
+/// glass [0|1|2|3] — 0=выкл, 1=лёгкий, 2=средний, 3=сильный
+pub unsafe fn cmd_glass(args: &[u8]) {
+    let level = if args.is_empty() {
+        // toggle: если было 0 → 2, иначе → 0
+        let current = crate::terminal::glass_mode();
+        if current == 0 { 2 } else { 0 }
+    } else {
+        let trimmed = trim_ascii(args);
+        if trimmed.len() == 1 && trimmed[0] >= b'0' && trimmed[0] <= b'3' {
+            (trimmed[0] - b'0') as u32
+        } else {
+            terminal::write(b"Usage: glass [0|1|2|3]\n");
+            terminal::write(b"  0 = off, 1 = light, 2 = medium, 3 = strong\n");
+            return;
+        }
+    };
+
+    crate::terminal::set_glass_mode(level);
+    if level > 0 {
+        terminal::write(b"Glassmorphism: ON (level ");
+        terminal::write_num(level as u64);
+        terminal::write(b")\n");
+        terminal::write(b"Experience the frosted glass terminal.\n");
+    } else {
+        terminal::write(b"Glassmorphism: OFF\n");
+    }
+    // Перерисовать экран при включении
+    if level > 0 || crate::terminal::glass_mode() == 0 {
+        crate::terminal::clear();
+    }
+}
+
+/// Rainbow: вывести текст радужными цветами.
+pub unsafe fn cmd_rainbow(args: &[u8]) {
+    if args.is_empty() {
+        // Без аргументов — показать демо
+        let msg = b"  PUREOS CRYSTAL KERNEL  ";
+        let rainbow_colors = [
+            crate::framebuffer::Rgb(255, 50, 50),    // red
+            crate::framebuffer::Rgb(255, 165, 0),    // orange
+            crate::framebuffer::Rgb(255, 255, 50),   // yellow
+            crate::framebuffer::Rgb(50, 255, 50),    // green
+            crate::framebuffer::Rgb(50, 200, 255),   // cyan
+            crate::framebuffer::Rgb(100, 100, 255),  // blue
+            crate::framebuffer::Rgb(200, 50, 255),   // purple
+        ];
+        for (i, &ch) in msg.iter().enumerate() {
+            let color = rainbow_colors[i % rainbow_colors.len()];
+            crate::terminal::set_colors(color, crate::terminal::current_bg());
+            crate::terminal::putchar(ch);
+        }
+        crate::terminal::set_colors(
+            crate::framebuffer::Rgb(255, 255, 255),
+            crate::terminal::current_bg(),
+        );
+        crate::terminal::write(b"\n");
+    } else {
+        // Вывести аргументы радугой
+        let rainbow_colors = [
+            crate::framebuffer::Rgb(255, 50, 50),
+            crate::framebuffer::Rgb(255, 165, 0),
+            crate::framebuffer::Rgb(255, 255, 50),
+            crate::framebuffer::Rgb(50, 255, 50),
+            crate::framebuffer::Rgb(50, 200, 255),
+            crate::framebuffer::Rgb(100, 100, 255),
+            crate::framebuffer::Rgb(200, 50, 255),
+        ];
+        for (i, &ch) in args.iter().enumerate() {
+            let color = rainbow_colors[i % rainbow_colors.len()];
+            crate::terminal::set_colors(color, crate::terminal::current_bg());
+            crate::terminal::putchar(ch);
+        }
+        crate::terminal::set_colors(
+            crate::framebuffer::Rgb(255, 255, 255),
+            crate::terminal::current_bg(),
+        );
+        crate::terminal::write(b"\n");
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Beep / Clock
+// ═══════════════════════════════════════════════════════════════════
+
+/// beep [freq] [ms] — пикнуть PC Speaker-ом.
+pub unsafe fn cmd_beep(args: &[u8]) {
+    let mut freq = 800u32;
+    let mut dur = 100u32;
+    let mut arg_idx = 0;
+    let mut num = 0u32;
+    let mut have_num = false;
+
+    for &ch in args {
+        if ch == b' ' || ch == b'\t' {
+            if have_num {
+                if arg_idx == 0 { freq = num.max(20).min(20000); }
+                else if arg_idx == 1 { dur = num.min(5000); }
+                arg_idx += 1;
+                have_num = false;
+                num = 0;
+            }
+            continue;
+        }
+        if ch >= b'0' && ch <= b'9' {
+            num = num * 10 + (ch - b'0') as u32;
+            have_num = true;
+        }
+    }
+    if have_num {
+        if arg_idx == 0 { freq = num.max(20).min(20000); }
+        else if arg_idx == 1 { dur = num.min(5000); }
+    }
+
+    crate::terminal::write(b"Beep: ");
+    crate::terminal::write_num(freq as u64);
+    crate::terminal::write(b" Hz, ");
+    crate::terminal::write_num(dur as u64);
+    crate::terminal::write(b" ms\n");
+    crate::pcspeaker::beep(freq, dur);
+}
+
+/// clock — показать текущее время из CMOS/RTC.
+pub unsafe fn cmd_clock(_args: &[u8]) {
+    let t = crate::cmos::read_rtc();
+    let time_str = crate::cmos::format_time(t.hour, t.minute);
+    crate::terminal::write(b"RTC time: ");
+    crate::terminal::write(&time_str);
+    crate::terminal::write(b"  ");
+    crate::terminal::write_num(t.day as u64);
+    crate::terminal::write(b".");
+    crate::terminal::write_num(t.month as u64);
+    crate::terminal::write(b".");
+    crate::terminal::write_num(t.year as u64);
+    crate::terminal::write(b"\n");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Sound commands
+// ═══════════════════════════════════════════════════════════════════
+
+/// play <note> <ms> [<note> <ms> ...] — сыграть мелодию.
+pub unsafe fn cmd_play(args: &[u8]) {
+    if args.is_empty() {
+        // Демо-мелодия (C E G C6) — начало Оды к Радости
+        crate::sound::play_freq(262, 150);  // C4
+        crate::sound::play_freq(294, 150);  // D4
+        crate::sound::play_freq(330, 150);  // E4
+        crate::sound::play_freq(349, 150);  // F4
+        crate::sound::play_freq(392, 150);  // G4
+        crate::sound::play_freq(349, 150);  // F4
+        crate::sound::play_freq(330, 150);  // E4
+        crate::sound::play_freq(294, 150);  // D4
+        crate::sound::play_freq(262, 300);  // C4
+        crate::terminal::write(b"Played demo melody.\n");
+        return;
+    }
+    // Parse args: alternating note/dur
+    let mut tokens: [&[u8]; 32] = [b""; 32];
+    let mut count = 0;
+    let mut start = 0;
+    for i in 0..=args.len() {
+        if i == args.len() || args[i] == b' ' {
+            if i > start {
+                if count < 32 {
+                    tokens[count] = &args[start..i];
+                    count += 1;
+                }
+            }
+            start = i + 1;
+        }
+    }
+    crate::sound::play_melody(&tokens[..count]);
+    crate::terminal::write(b"Played ");
+    crate::terminal::write_num(count as u64);
+    crate::terminal::write(b" notes.\n");
+}
+
+/// volume <0..100> — установить громкость.
+pub unsafe fn cmd_volume(args: &[u8]) {
+    if args.is_empty() {
+        crate::terminal::write(b"Volume: ");
+        crate::terminal::write_num(crate::sound::get_volume() as u64);
+        crate::terminal::write(b"%\n");
+        return;
+    }
+    let mut vol = 0u32;
+    for &ch in args {
+        if ch >= b'0' && ch <= b'9' {
+            vol = vol * 10 + (ch - b'0') as u32;
+        }
+    }
+    let vol = vol.min(100) as u8;
+    crate::sound::set_volume(vol);
+    crate::terminal::write(b"Volume set to ");
+    crate::terminal::write_num(vol as u64);
+    crate::terminal::write(b"%\n");
+    crate::sound::confirm();
+}
+
+/// sound [on|off] — управление звуком.
+pub unsafe fn cmd_sound(args: &[u8]) {
+    if args.is_empty() {
+        crate::terminal::write(b"Sound: ");
+        if crate::sound::is_enabled() {
+            crate::terminal::write(b"on, volume ");
+            crate::terminal::write_num(crate::sound::get_volume() as u64);
+            crate::terminal::write(b"%\n");
+        } else {
+            crate::terminal::write(b"off\n");
+        }
+        return;
+    }
+    if args.eq_ignore_ascii_case(b"on") {
+        crate::sound::set_enabled(true);
+        crate::sound::boot();
+        crate::terminal::write(b"Sound on.\n");
+    } else if args.eq_ignore_ascii_case(b"off") {
+        crate::sound::set_enabled(false);
+        crate::terminal::write(b"Sound off.\n");
+    } else {
+        crate::terminal::write(b"Usage: sound [on|off]\n");
+    }
+}
+
+/// Обрезать пробельные символы (для парсинга аргументов).
+fn trim_ascii(s: &[u8]) -> &[u8] {
+    let mut start = 0;
+    while start < s.len() && s[start] <= b' ' { start += 1; }
+    let mut end = s.len();
+    while end > start && s[end - 1] <= b' ' { end -= 1; }
+    &s[start..end]
 }

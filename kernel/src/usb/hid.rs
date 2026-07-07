@@ -3,6 +3,7 @@
 //! Zero-Alloc: статические структуры.
 
 use crate::framebuffer::Rgb;
+use crate::keyboard::KEY_META;
 
 // ── Keyboard state ──
 
@@ -36,12 +37,18 @@ static mut MOUSE_Y: i32 = 0;
 static mut MOUSE_BUTTONS: u8 = 0;
 
 /// Cursor save area (для restore background при перемещении).
-static mut CURSOR_BG: [u32; CURSOR_W * CURSOR_H] = [0; CURSOR_W * CURSOR_H];
+/// Включает 1-пиксельную рамку вокруг курсора для обводки (outline).
+const CURSOR_W: usize = 12;
+const CURSOR_H: usize = 16;
+const CURSOR_BG_W: usize = CURSOR_W + 2; // 14
+const CURSOR_BG_H: usize = CURSOR_H + 2; // 18
+static mut CURSOR_BG: [u32; CURSOR_BG_W * CURSOR_BG_H] = [0; CURSOR_BG_W * CURSOR_BG_H];
 static mut CURSOR_VISIBLE: bool = false;
 static mut CURSOR_DIRTY: bool = true;
 
-const CURSOR_W: usize = 12;
-const CURSOR_H: usize = 16;
+/// Позиция, где был сохранён фон (для корректного restore при движении).
+static mut BG_SAVED_X: i32 = 0;
+static mut BG_SAVED_Y: i32 = 0;
 
 /// Растровый курсор-стрелка (1 = foreground, 0 = background).
 /// 12×16 пикселей, упаковано побитово по строкам.
@@ -238,9 +245,12 @@ fn keycode_to_ascii(key: u8, mods: u8) -> Option<u8> {
         0x61 => Some(if shift { b'9' } else { b'9' }),
         0x62 => Some(if shift { b'0' } else { b'0' }),
 
-        _ => None,
-    }
-}
+                // Meta/Windows key (Left GUI / Right GUI)
+                0xE3 | 0xE7 => Some(KEY_META),
+
+                _ => None,
+            }
+        }
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Mouse
@@ -250,8 +260,9 @@ fn keycode_to_ascii(key: u8, mods: u8) -> Option<u8> {
 /// Byte 0: buttons, Byte 1: X delta, Byte 2: Y delta (signed).
 pub unsafe fn process_mouse_report(report: &[u8; 3]) {
     let buttons = report[0] & 0x07;
-    let dx = report[1] as i8 as i32;
-    let dy = report[2] as i8 as i32;
+    let sens = crate::config::get_mouse_sensitivity();
+    let dx = (report[1] as i8 as i32) * sens as i32 / 5;
+    let dy = (report[2] as i8 as i32) * sens as i32 / 5;
 
     MOUSE_BUTTONS = buttons;
 
@@ -267,48 +278,52 @@ pub unsafe fn process_mouse_report(report: &[u8; 3]) {
     }
 }
 
-/// Сохранить фон под курсором.
+/// Сохранить фон под курсором (включая 1px под обводку).
 pub unsafe fn save_cursor_bg() {
-    let x = MOUSE_X;
-    let y = MOUSE_Y;
-    for row in 0..CURSOR_H {
-        for col in 0..CURSOR_W {
-            let px = crate::framebuffer::get(
-                (x + col as i32) as u32,
-                (y + row as i32) as u32,
-            );
-            let packed = match px {
-                Some(Rgb(r, g, b)) => (r as u32) | ((g as u32) << 8) | ((b as u32) << 16),
-                None => 0,
-            };
-            CURSOR_BG[row * CURSOR_W + col] = packed;
+    BG_SAVED_X = MOUSE_X;
+    BG_SAVED_Y = MOUSE_Y;
+    let x0 = MOUSE_X - 1;
+    let y0 = MOUSE_Y - 1;
+    let bw = crate::framebuffer::width() as i32;
+    let bh = crate::framebuffer::height() as i32;
+    for row in 0..CURSOR_BG_H {
+        for col in 0..CURSOR_BG_W {
+            let fx = x0 + col as i32;
+            let fy = y0 + row as i32;
+            let packed = if fx >= 0 && fy >= 0 && fx < bw && fy < bh {
+                match crate::framebuffer::get(fx as u32, fy as u32) {
+                    Some(Rgb(r, g, b)) => (r as u32) | ((g as u32) << 8) | ((b as u32) << 16),
+                    None => 0,
+                }
+            } else { 0 };
+            CURSOR_BG[row * CURSOR_BG_W + col] = packed;
         }
     }
 }
 
-/// Восстановить фон под курсором.
+/// Восстановить фон под курсором (включая 1px под обводку).
+/// Использует позицию, где был сохранён фон (BG_SAVED_X/Y), а не текущую.
 pub unsafe fn restore_cursor_bg() {
-    let x = MOUSE_X;
-    let y = MOUSE_Y;
-    for row in 0..CURSOR_H {
-        for col in 0..CURSOR_W {
-            let packed = CURSOR_BG[row * CURSOR_W + col];
+    let x0 = BG_SAVED_X - 1;
+    let y0 = BG_SAVED_Y - 1;
+    for row in 0..CURSOR_BG_H {
+        for col in 0..CURSOR_BG_W {
+            let fx = x0 + col as i32;
+            let fy = y0 + row as i32;
+            if fx < 0 || fy < 0 { continue; }
+            let packed = CURSOR_BG[row * CURSOR_BG_W + col];
             let r = (packed & 0xFF) as u8;
             let g = ((packed >> 8) & 0xFF) as u8;
             let b = ((packed >> 16) & 0xFF) as u8;
-            crate::framebuffer::put(
-                (x + col as i32) as u32,
-                (y + row as i32) as u32,
-                Rgb(r, g, b),
-            );
+            crate::framebuffer::put(fx as u32, fy as u32, Rgb(r, g, b));
         }
     }
 }
 
 /// Нарисовать курсор на его текущей позиции.
 pub unsafe fn draw_cursor() {
-    let x = MOUSE_X;
-    let y = MOUSE_Y;
+    let _x = MOUSE_X;
+    let _y = MOUSE_Y;
     let fg = Rgb(255, 255, 255); // белый
     let out = Rgb(0, 0, 0);      // чёрный обвод (инверт)
 
@@ -356,6 +371,15 @@ pub unsafe fn hide_cursor() {
     }
 }
 
+/// Shows the cursor (save bg + draw).
+pub unsafe fn show_cursor() {
+    if !CURSOR_VISIBLE {
+        save_cursor_bg();
+        draw_cursor();
+        CURSOR_VISIBLE = true;
+    }
+}
+
 /// Получить позицию курсора.
 pub fn mouse_pos() -> (i32, i32) {
     unsafe { (MOUSE_X, MOUSE_Y) }
@@ -366,9 +390,23 @@ pub fn mouse_buttons() -> u8 {
     unsafe { MOUSE_BUTTONS }
 }
 
-/// Обновить курсор (вызывается из shell loop).
+/// Установить позицию (вызывается из PS/2 мыши/тачпада).
+pub unsafe fn mouse_set_pos(x: i32, y: i32) {
+    MOUSE_X = x;
+    MOUSE_Y = y;
+    CURSOR_DIRTY = true;
+}
+
+/// Установить кнопки (вызывается из PS/2 мыши/тачпада).
+pub unsafe fn mouse_set_buttons(buttons: u8) {
+    MOUSE_BUTTONS = buttons;
+}
+
+/// Обновить курсор (вызывается из shell loop и desktop loop).
+/// Всегда перерисовывает курсор, если он должен быть видим
+/// (даже после mouse_hide, когда CURSOR_DIRTY мог сброситься).
 pub unsafe fn update_cursor() {
-    if CURSOR_DIRTY {
+    if CURSOR_DIRTY || !CURSOR_VISIBLE {
         if CURSOR_VISIBLE {
             restore_cursor_bg();
         }
@@ -384,4 +422,6 @@ pub unsafe fn init_mouse() {
     MOUSE_BUTTONS = 0;
     CURSOR_VISIBLE = false;
     CURSOR_DIRTY = true;
+    BG_SAVED_X = MOUSE_X;
+    BG_SAVED_Y = MOUSE_Y;
 }

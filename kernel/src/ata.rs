@@ -46,35 +46,54 @@ pub unsafe fn init() {
 
 fn detect() -> bool {
     unsafe {
+        // Сбросить шину: установить SRST (бит 2) в Device Control, подождать, снять.
+        crate::cpu::outb(ALT_STATUS, 0x04); // SRST
+        for _ in 0..10000 { core::hint::spin_loop(); }
+        crate::cpu::outb(ALT_STATUS, 0x00); // release SRST
+        for _ in 0..100000 { core::hint::spin_loop(); }
+
         // Выбрать master-диск на primary channel.
         crate::cpu::outb(DRIVE_HEAD, 0xE0);
         // Небольшая пауза.
         crate::cpu::outb(ALT_STATUS, 0);
+        for _ in 0..10000 { core::hint::spin_loop(); }
 
         // Послать IDENTIFY.
         crate::cpu::outb(COMMAND_PORT, CMD_IDENTIFY);
 
         // Ждать, пока не BSY или готовность.
+        // На реальном железе ATA-контроллер может виснуть, если нет устройства.
+        // Используем короткий таймаут, чтобы не блокировать загрузку.
         let mut timeout = 0;
-        while timeout < 10000 {
+        while timeout < 5000000 {
             let status = crate::cpu::inb(COMMAND_PORT);
             if status & STATUS_BSY == 0 { break; }
             timeout += 1;
+            if timeout & 0xFFFFF == 0 {
+                // Прогресс каждые ~1M итераций
+                crate::console::serial_puts(b"[ATA] waiting...\n");
+            }
         }
-        if timeout >= 10000 {
+        if timeout >= 5000000 {
+            crate::console::serial_puts(b"[ATA] timeout - no device\n");
             return false; // Timeout
         }
 
         let status = crate::cpu::inb(COMMAND_PORT);
         if status == 0 {
+            crate::console::serial_puts(b"[ATA] status=0 - no device\n");
             return false; // Нет устройства
         }
 
         // Проверить, что это ATA (LBA mid/high == 0 для ATA)
-        if crate::cpu::inb(LBA_MID) != 0 || crate::cpu::inb(LBA_HIGH) != 0 {
+        let mid = crate::cpu::inb(LBA_MID);
+        let high = crate::cpu::inb(LBA_HIGH);
+        if mid != 0 || high != 0 {
+            crate::console::serial_puts(b"[ATA] non-ATA device (ATAPI?)\n");
             return false; // ATAPI или другое
         }
 
+        crate::console::serial_puts(b"[ATA] device detected\n");
         true
     }
 }

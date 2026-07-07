@@ -13,6 +13,7 @@ pub struct SystemConfig {
     pub ephemeral_layer_size: u64,
     pub enable_graphics: bool,
     pub boot_delay_ms: u64,
+    pub mouse_sensitivity: u32, // 1..9
 }
 
 impl Clone for SystemConfig {
@@ -69,6 +70,7 @@ impl SystemConfig {
             ephemeral_layer_size: 16 * 1024 * 1024,
             enable_graphics: true,
             boot_delay_ms: 0,
+            mouse_sensitivity: 5,
         }
     }
 }
@@ -169,6 +171,18 @@ pub unsafe fn set_graphics_enabled(enabled: bool) {
 /// Проверить включена ли графика
 pub unsafe fn is_graphics_enabled() -> bool {
     CONFIG.enable_graphics
+}
+
+/// Установить чувствительность мыши (1-9)
+pub unsafe fn set_mouse_sensitivity(val: u32) {
+    if val >= 1 && val <= 9 {
+        CONFIG.mouse_sensitivity = val;
+    }
+}
+
+/// Получить чувствительность мыши
+pub unsafe fn get_mouse_sensitivity() -> u32 {
+    CONFIG.mouse_sensitivity
 }
 
 /// Установить задержку загрузки
@@ -302,6 +316,9 @@ pub unsafe fn save_config() -> bool {
     // boot_delay_ms (u64)
     buf[off..off+8].copy_from_slice(&CONFIG.boot_delay_ms.to_le_bytes()); off += 8;
 
+    // mouse_sensitivity (u32)
+    buf[off..off+4].copy_from_slice(&CONFIG.mouse_sensitivity.to_le_bytes()); off += 4;
+
     let data = &buf[..off];
     // Создать /etc/pureos.conf
     let path = match crate::fs::resolve(b"/etc/pureos.conf") {
@@ -335,7 +352,7 @@ pub unsafe fn load_config() -> bool {
     if data.len() < 4 || data[0] != b'P' || data[1] != b'C' || data[2] != b'F' || data[3] != 1 {
         terminal::write(b"config: bad format\n"); return false;
     }
-    if data.len() < 100 {
+    if data.len() < 104 {
         terminal::write(b"config: truncated\n"); return false;
     }
     let mut off = 4;
@@ -355,7 +372,8 @@ pub unsafe fn load_config() -> bool {
                                                       data[off+4], data[off+5], data[off+6], data[off+7]]); off += 8;
     CONFIG.enable_graphics = data[off] != 0; off += 1;
     CONFIG.boot_delay_ms = u64::from_le_bytes([data[off], data[off+1], data[off+2], data[off+3],
-                                                data[off+4], data[off+5], data[off+6], data[off+7]]);
+                                                data[off+4], data[off+5], data[off+6], data[off+7]]); off += 8;
+    CONFIG.mouse_sensitivity = u32::from_le_bytes([data[off], data[off+1], data[off+2], data[off+3]]);
     terminal::write(b"Configuration loaded from /etc/pureos.conf\n");
     true
 }

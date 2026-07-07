@@ -116,6 +116,73 @@ Built: 2026-07\n");
     if let Some(home) = find_child(ROOT, b"home") {
         let _ = mkdir(home, b"user");
     }
+
+    // Каталог для .desktop-ярлыков.
+    let _ = mkdir(ROOT, b"desktop");
+    // Пример ярлыка для .pos программ.
+    if let Some(desktop) = find_child(ROOT, b"desktop") {
+        // Сканируем /apps/ на наличие .pos-файлов и создаём ярлыки.
+        // В реальном коде ярлыки редактируются пользователем.
+        let _scan = scan_apps_for_shortcuts(desktop);
+    }
+}
+
+/// Создать .desktop-ярлыки для .pos-файлов в /apps/.
+unsafe fn scan_apps_for_shortcuts(desktop_dir: u16) -> u32 {
+    let apps_dir = find_child(ROOT, b"apps").unwrap_or(ROOT);
+    let mut count = 0u32;
+    for_each_child(apps_dir, |idx| {
+        if count >= 8 { return; }
+        if NODES[idx as usize].kind != Kind::File { return; }
+        let name = NODES[idx as usize].name();
+        if name.len() < 5 { return; }
+        if !name[name.len()-4..].eq_ignore_ascii_case(b".pos")
+            && !name[name.len()-4..].eq_ignore_ascii_case(b".elf") {
+            return;
+        }
+        // Имя без расширения
+        let base = &name[..name.len()-4];
+        if base.is_empty() { return; }
+
+        // Создать .desktop-файл
+        let desktop_name = {
+            let mut buf = [0u8; 28];
+            let mut i = 0;
+            while i < base.len() && i < 20 { buf[i] = base[i]; i += 1; }
+            if i + 8 > 28 { return; }
+            buf[i] = b'.'; buf[i+1] = b'd'; buf[i+2] = b'e'; buf[i+3] = b's';
+            buf[i+4] = b'k'; buf[i+5] = b't'; buf[i+6] = b'o'; buf[i+7] = b'p';
+            buf
+        };
+        // Сократить имя до первого нуля
+        let mut dname_len = 0;
+        while dname_len < 28 && desktop_name[dname_len] != 0 { dname_len += 1; }
+
+        if let Some(shortcut) = create_file(desktop_dir, &desktop_name[..dname_len]) {
+            // Содержимое: Name, Exec, Icon (RRGGBB), Glyph
+            let mut content = [0u8; 128];
+            let mut off = 0;
+            let name_line = b"Name=";
+            let exec_line = b"Exec=/apps/";
+            let icon_line = b"Icon=4488CC\n";
+            let glyph_byte = if base.len() > 0 { base[0].to_ascii_uppercase() } else { b'A' };
+            let glyph_line = [b'G', b'l', b'y', b'p', b'h', b'=', glyph_byte, b'\n'];
+
+            for &b in name_line { content[off] = b; off += 1; if off >= 120 { break; } }
+            for &b in name { content[off] = b; off += 1; if off >= 120 { break; } }
+            content[off] = b'\n'; off += 1;
+            for &b in exec_line { content[off] = b; off += 1; if off >= 120 { break; } }
+            for &b in name { content[off] = b; off += 1; if off >= 120 { break; } }
+            content[off] = b'\n'; off += 1;
+            for &b in icon_line { content[off] = b; off += 1; if off >= 120 { break; } }
+            for &b in &glyph_line { content[off] = b; off += 1; if off >= 120 { break; } }
+            content[off] = b'\n'; off += 1;
+
+            let _ = write(shortcut, &content[..off]);
+            count += 1;
+        }
+    });
+    count
 }
 
 /// Получить статистику пула данных ФС.

@@ -1,8 +1,9 @@
-C:\Users\marius\Documents\PureOS\kernel\target\release\deps\pureos_kernel.d: src\main.rs src\apic.rs src\ata.rs src\barrel.rs src\barrelc.rs src\blockfs.rs src\commands.rs src\config.rs src\console.rs src\context.rs src\cpu.rs src\documentation.rs src\elf.rs src\ephemeral.rs src\font.rs src\fs.rs src\image.rs src\frame.rs src\framebuffer.rs src\graphics.rs src\hw.rs src\idt.rs src\installer.rs src\keyboard.rs src\shell.rs src\smp.rs src\snake_game.rs src\syscall.rs src\sysmon.rs src\terminal.rs src\test_runner.rs src\uefi.rs src\wallpaper.rs src\jpeg.rs src\gif.rs src\net\mod.rs src\net\nic.rs src\net\eth.rs src\net\dhcp.rs src\net\dns.rs src\net\http.rs src\usb\mod.rs src\usb\ehci.rs src\usb\hid.rs
+C:\Users\marius\Documents\PureOS\kernel\target\release\deps\pureos_kernel.d: src\main.rs src\acpi.rs src\apic.rs src\ata.rs src\barrel.rs src\barrelc.rs src\blockfs.rs src\commands.rs src\config.rs src\pos.rs src\console.rs src\context.rs src\cpu.rs src\desktop.rs src\documentation.rs src\elf.rs src\ephemeral.rs src\filer.rs src\font.rs src\fs.rs src\image.rs src\frame.rs src\framebuffer.rs src\graphics.rs src\hw.rs src\idt.rs src\installer.rs src\keyboard.rs src\ps2mouse.rs src\settings.rs src\shell.rs src\smp.rs src\snake_game.rs src\syscall.rs src\sysmon.rs src\terminal.rs src\test_runner.rs src\uefi.rs src\wallpaper.rs src\window.rs src\jpeg.rs src\gif.rs src\net\mod.rs src\net\nic.rs src\net\eth.rs src\net\dhcp.rs src\net\dns.rs src\net\http.rs src\paint.rs src\usb\mod.rs src\usb\ehci.rs src\usb\hid.rs src\../../userspace/personal/explorer.bin src\../../userspace/personal/paint.bin src\../../userspace/personal/rebooticon.bin src\../../userspace/personal/settingsicon.bin src\../../userspace/personal/snake.bin src\../../userspace/personal/shutdown.bin src\../../userspace/personal/bg.bin
 
-C:\Users\marius\Documents\PureOS\kernel\target\release\deps\pureos_kernel.exe: src\main.rs src\apic.rs src\ata.rs src\barrel.rs src\barrelc.rs src\blockfs.rs src\commands.rs src\config.rs src\console.rs src\context.rs src\cpu.rs src\documentation.rs src\elf.rs src\ephemeral.rs src\font.rs src\fs.rs src\image.rs src\frame.rs src\framebuffer.rs src\graphics.rs src\hw.rs src\idt.rs src\installer.rs src\keyboard.rs src\shell.rs src\smp.rs src\snake_game.rs src\syscall.rs src\sysmon.rs src\terminal.rs src\test_runner.rs src\uefi.rs src\wallpaper.rs src\jpeg.rs src\gif.rs src\net\mod.rs src\net\nic.rs src\net\eth.rs src\net\dhcp.rs src\net\dns.rs src\net\http.rs src\usb\mod.rs src\usb\ehci.rs src\usb\hid.rs
+C:\Users\marius\Documents\PureOS\kernel\target\release\deps\pureos_kernel.exe: src\main.rs src\acpi.rs src\apic.rs src\ata.rs src\barrel.rs src\barrelc.rs src\blockfs.rs src\commands.rs src\config.rs src\pos.rs src\console.rs src\context.rs src\cpu.rs src\desktop.rs src\documentation.rs src\elf.rs src\ephemeral.rs src\filer.rs src\font.rs src\fs.rs src\image.rs src\frame.rs src\framebuffer.rs src\graphics.rs src\hw.rs src\idt.rs src\installer.rs src\keyboard.rs src\ps2mouse.rs src\settings.rs src\shell.rs src\smp.rs src\snake_game.rs src\syscall.rs src\sysmon.rs src\terminal.rs src\test_runner.rs src\uefi.rs src\wallpaper.rs src\window.rs src\jpeg.rs src\gif.rs src\net\mod.rs src\net\nic.rs src\net\eth.rs src\net\dhcp.rs src\net\dns.rs src\net\http.rs src\paint.rs src\usb\mod.rs src\usb\ehci.rs src\usb\hid.rs src\../../userspace/personal/explorer.bin src\../../userspace/personal/paint.bin src\../../userspace/personal/rebooticon.bin src\../../userspace/personal/settingsicon.bin src\../../userspace/personal/snake.bin src\../../userspace/personal/shutdown.bin src\../../userspace/personal/bg.bin
 
 src\main.rs:
+src\acpi.rs:
 src\apic.rs:
 src\ata.rs:
 src\barrel.rs:
@@ -10,12 +11,15 @@ src\barrelc.rs:
 src\blockfs.rs:
 src\commands.rs:
 src\config.rs:
+src\pos.rs:
 src\console.rs:
 src\context.rs:
 src\cpu.rs:
+src\desktop.rs:
 src\documentation.rs:
 src\elf.rs:
 src\ephemeral.rs:
+src\filer.rs:
 src\font.rs:
 src\fs.rs:
 src\image.rs:
@@ -26,6 +30,8 @@ src\hw.rs:
 src\idt.rs:
 src\installer.rs:
 src\keyboard.rs:
+src\ps2mouse.rs:
+src\settings.rs:
 src\shell.rs:
 src\smp.rs:
 src\snake_game.rs:
@@ -35,6 +41,7 @@ src\terminal.rs:
 src\test_runner.rs:
 src\uefi.rs:
 src\wallpaper.rs:
+src\window.rs:
 src\jpeg.rs:
 src\gif.rs:
 src\net\mod.rs:
@@ -43,6 +50,14 @@ src\net\eth.rs:
 src\net\dhcp.rs:
 src\net\dns.rs:
 src\net\http.rs:
+src\paint.rs:
 src\usb\mod.rs:
 src\usb\ehci.rs:
 src\usb\hid.rs:
+src\../../userspace/personal/explorer.bin:
+src\../../userspace/personal/paint.bin:
+src\../../userspace/personal/rebooticon.bin:
+src\../../userspace/personal/settingsicon.bin:
+src\../../userspace/personal/snake.bin:
+src\../../userspace/personal/shutdown.bin:
+src\../../userspace/personal/bg.bin:

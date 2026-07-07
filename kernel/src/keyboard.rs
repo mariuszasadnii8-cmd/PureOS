@@ -10,6 +10,10 @@
 
 use crate::cpu;
 
+/// Специальный код клавиши Meta (Windows/Command).
+/// Не пересекается с ASCII-диапазоном и scancode-таблицами.
+pub const KEY_META: u8 = 0xFB;
+
 const PS2_DATA: u16 = 0x60;
 const PS2_STATUS: u16 = 0x64;
 
@@ -76,6 +80,11 @@ unsafe fn handle_scancode(code: u8) {
     // Префикс расширенных клавиш — саму клавишу за ним пока игнорируем.
     if code == 0xE0 {
         EXTENDED = true;
+        return;
+    }
+    // Meta/Windows key (0x5B left, 0x5C right) — пуск-меню
+    if code == 0x5B || code == 0x5C {
+        push_buf(KEY_META);
         return;
     }
     match code {

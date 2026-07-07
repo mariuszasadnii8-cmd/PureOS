@@ -20,29 +20,33 @@ pub unsafe fn run() -> ! {
     terminal::clear();
     show_banner();
 
-    // Init mouse cursor
-    crate::usb::mouse_init();
+    // Init mouse cursor — только фоновая загрузка, без отрисовки
+    // (десктоп сам активирует курсор командой desktop)
 
     CMD_LEN = 0;
     show_prompt();
 
-    // Главный REPL-цикл: опрашиваем HID (клавиатура + мышь), скармливаем символы
+    // Главный REPL-цикл: опрашиваем HID-устройства, скармливаем символы
     // обработчику, который редактирует CMD_BUF и по Enter выполняет команду.
     // Прерывания выключены (§5), поэтому это кооперативный polling, а не сон.
     loop {
-        // USB keyboard + mouse
+        // USB keyboard + mouse (получаем данные, но курсор не рисуем)
         crate::usb::poll();
-        // Обновить курсор мыши (save/restore background + draw)
-        crate::usb::mouse_poll();
 
         while let Some(ch) = crate::usb::key_read() {
-            // Скрыть курсор при вводе текста
-            crate::usb::mouse_hide();
             handle_key(ch);
         }
         keyboard::poll();
         while let Some(ch) = keyboard::read_key() {
-            crate::usb::mouse_hide();
+            handle_key(ch);
+        }
+        // Фоновый опрос PS/2 мыши (данные копятся, курсор не рисуется)
+        crate::ps2mouse::poll();
+        // Дополнительный опрос клавиатуры — если между keyboard::poll() и
+        // ps2mouse::poll() пришёл клавиатурный байт, мышь могла его
+        // проглотить, так что проверяем ещё раз.
+        keyboard::poll();
+        while let Some(ch) = keyboard::read_key() {
             handle_key(ch);
         }
         // Короткая пауза, чтобы не жечь CPU в плотном busy-loop.
@@ -101,6 +105,7 @@ unsafe fn handle_key(ch: u8) {
                 CMD_BUF[CMD_LEN] = ch;
                 CMD_LEN += 1;
                 terminal::putchar(ch);
+                crate::sound::click();
             }
         }
         _ => {}
@@ -215,6 +220,7 @@ unsafe fn execute_command() {
     else if is(b"shutdown") { cmd_shutdown(); }
     else if is(b"exec") { cmd_exec(args); }
     else if is(b"cc") { cmd_cc(args); }
+    else if is(b"paint") { cmd_paint(); }
     else if is(b"snake") { cmd_snake(); }
     else if is(b"test") { cmd_test(); }
     else if is(b"top") { cmd_top(); }
@@ -223,6 +229,33 @@ unsafe fn execute_command() {
     else if is(b"wallpaper") { commands::cmd_wallpaper(args); }
     else if is(b"desktop") { commands::cmd_desktop(args); }
     else if is(b"theme") { commands::cmd_theme(args); }
+    // Glassmorphism
+    else if is(b"glass") { commands::cmd_glass(args); }
+    // Rainbow
+    else if is(b"rainbow") { commands::cmd_rainbow(args); }
+    // Drivers / Sound
+    else if is(b"beep") { commands::cmd_beep(args); }
+    else if is(b"clock") { commands::cmd_clock(args); }
+    else if is(b"play") { commands::cmd_play(args); }
+    else if is(b"volume") { commands::cmd_volume(args); }
+    else if is(b"sound") { commands::cmd_sound(args); }
+    // Fun / Demos
+    else if is(b"snake") { crate::fun::play_snake(); }
+    else if is(b"matrix") { crate::fun::matrix_rain(); }
+    else if is(b"mandelbrot") { crate::fun::mandelbrot(); }
+    else if is(b"starfield") { crate::fun::starfield(); }
+    else if is(b"fire") { crate::fun::fire(); }
+    else if is(b"bounce") { crate::fun::bounce(); }
+    else if is(b"rain") { crate::fun::rain(); }
+    else if is(b"snow") { crate::fun::snow(); }
+    else if is(b"kaleidoscope") { crate::fun::kaleidoscope(); }
+    // 3D
+    else if is(b"cube3d") { crate::gfx3d::cube3d(); }
+    else if is(b"donut") { crate::gfx3d::donut(); }
+    else if is(b"plasma") { crate::gfx3d::plasma(); }
+    else if is(b"gol") { crate::gfx3d::gol(); }
+    else if is(b"tunnel") { crate::gfx3d::tunnel(); }
+    else if is(b"demoloop") { crate::fun::demoloop(); }
     else { unknown_command(); }
 }
 
@@ -293,11 +326,42 @@ unsafe fn cmd_barrel() {
 }
 
 unsafe fn cmd_exec(args: &[u8]) {
+    // Если аргумент — путь к файлу, загрузить и выполнить
+    if args.contains(&b'/') || args.ends_with(b".pos") || args.ends_with(b".elf") {
+        let node = match crate::fs::resolve(args) {
+            Some(n) => n,
+            None => { terminal::write(b"exec: file not found\n"); return; }
+        };
+        if crate::fs::kind(node) != crate::fs::Kind::File {
+            terminal::write(b"exec: not a file\n"); return;
+        }
+        let data = crate::fs::read(node);
+        if data.is_empty() {
+            terminal::write(b"exec: empty file\n"); return;
+        }
+        let name = crate::fs::node_name(node);
+        let pid = if name.len() >= 4 && name[name.len()-4..].eq_ignore_ascii_case(b".pos") {
+            crate::pos::exec(data)
+        } else {
+            crate::elf::exec(data.as_ptr() as u64, data.len() as u64)
+        };
+        if pid >= 0 {
+            terminal::write(b"loaded, PID="); terminal::write_num(pid as u64);
+            terminal::write(b"\n");
+        } else {
+            terminal::write(b"exec failed: "); terminal::write_num((-pid) as u64);
+            terminal::write(b"\n");
+        }
+        return;
+    }
+
+    // Legacy: exec <hex_addr> <hex_size>
     let mut parts = args.split(|&c| c == b' ');
     let addr_str = parts.next().unwrap_or(b"");
     let size_str = parts.next().unwrap_or(b"");
     if addr_str.is_empty() || size_str.is_empty() {
-        terminal::write(b"usage: exec <hex_addr> <hex_size>\n"); return;
+        terminal::write(b"usage: exec <path>\n");
+        terminal::write(b"       exec <hex_addr> <hex_size>\n"); return;
     }
     let addr = parse_hex(addr_str);
     let size = parse_hex(size_str);
@@ -356,6 +420,11 @@ unsafe fn cmd_hex(args: &[u8]) {
 unsafe fn cmd_snake() {
     terminal::write(b"Starting Snake... (WASD move, Q quit)\n");
     crate::snake_game::run();
+}
+
+unsafe fn cmd_paint() {
+    terminal::write(b"Starting Paint... (mouse draw, Esc exit)\n");
+    crate::paint::run();
 }
 
 unsafe fn cmd_test() {

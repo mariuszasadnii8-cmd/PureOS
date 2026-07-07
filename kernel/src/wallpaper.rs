@@ -13,9 +13,16 @@ pub enum WallpaperId {
     Waves,
     Grid,
     Noise,
+    Custom1, // bg.bin — 1672×941 32bpp BGRA
 }
 
-pub const WALLPAPER_COUNT: usize = 8;
+pub const WALLPAPER_COUNT: usize = 9;
+
+/// Встроенные данные обоев (raw 32bpp BGRA).
+static WALLPAPER1_DATA: &[u8] = include_bytes!("../../userspace/personal/bg.bin");
+
+const WALLPAPER1_W: u32 = 1672;
+const WALLPAPER1_H: u32 = 941;
 
 pub fn wallpaper_name(id: WallpaperId) -> &'static [u8] {
     match id {
@@ -27,6 +34,7 @@ pub fn wallpaper_name(id: WallpaperId) -> &'static [u8] {
         WallpaperId::Waves => b"waves",
         WallpaperId::Grid => b"grid",
         WallpaperId::Noise => b"noise",
+        WallpaperId::Custom1 => b"bg1",
     }
 }
 
@@ -34,7 +42,7 @@ fn lookup(name: &[u8]) -> Option<WallpaperId> {
     let ids = [
         WallpaperId::Solid, WallpaperId::Gradient, WallpaperId::Stripes,
         WallpaperId::Checkers, WallpaperId::Radial, WallpaperId::Waves,
-        WallpaperId::Grid, WallpaperId::Noise,
+        WallpaperId::Grid, WallpaperId::Noise, WallpaperId::Custom1,
     ];
     for id in &ids {
         if wallpaper_name(*id) == name {
@@ -42,6 +50,26 @@ fn lookup(name: &[u8]) -> Option<WallpaperId> {
         }
     }
     None
+}
+
+/// Нарисовать raw 32bpp BGRA изображение на весь фреймбуфер с nearest-neighbor scaling.
+fn draw_raw_bgra(data: &[u8], img_w: u32, img_h: u32) {
+    let fb_w = framebuffer::width();
+    let fb_h = framebuffer::height();
+    if fb_w == 0 || fb_h == 0 || data.len() < (img_w * img_h * 4) as usize { return; }
+    for y in 0..fb_h {
+        let src_y = (y * img_h) / fb_h;
+        let row_off = (src_y * img_w * 4) as usize;
+        for x in 0..fb_w {
+            let src_x = (x * img_w) / fb_w;
+            let off = row_off + (src_x * 4) as usize;
+            if off + 3 >= data.len() { continue; }
+            let b = data[off];
+            let g = data[off + 1];
+            let r = data[off + 2];
+            framebuffer::put(x, y, Rgb(r, g, b));
+        }
+    }
 }
 
 /// Approximate sine using a lookup-like polynomial for u32 in 0..255 range (0..2π).
@@ -156,6 +184,9 @@ pub fn draw(wallpaper: WallpaperId) {
                     framebuffer::put(x, y, Rgb(n / 3, n / 4, n / 2));
                 }
             }
+        }
+        WallpaperId::Custom1 => {
+            draw_raw_bgra(WALLPAPER1_DATA, WALLPAPER1_W, WALLPAPER1_H);
         }
     }
 }

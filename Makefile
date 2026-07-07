@@ -46,16 +46,18 @@ esp: kernel uefi
 	# startup.nsh — автостарт bootloader через UEFI Shell
 	Set-Content -Path '$(ESP_DIR)/startup.nsh' -Value 'fs0:\EFI\BOOT\BOOTX64.EFI' -Encoding Ascii
 
+USB_QEMU := -usb -device usb-tablet
+
 run: esp
-	& $(QEMU) -machine q35 -cpu qemu64,+syscall -m $(QEMU_MEMORY) -pflash "C:\Program Files\qemu\share\edk2-x86_64-code.fd" -drive format=raw,file=fat:rw:$(ESP_DIR) -serial stdio -display sdl -vga std -no-reboot
+	& $(QEMU) -machine q35 -cpu qemu64,+syscall -m $(QEMU_MEMORY) -pflash "C:\Program Files\qemu\share\edk2-x86_64-code.fd" -drive format=raw,file=fat:rw:$(ESP_DIR) $(USB_QEMU) -serial stdio -display sdl -vga std -no-reboot
 
 run-nographic: esp
-	& $(QEMU) -machine q35 -cpu qemu64,+syscall -m $(QEMU_MEMORY) -pflash "C:\Program Files\qemu\share\edk2-x86_64-code.fd" -drive format=raw,file=fat:rw:$(ESP_DIR) -serial file:build/serial.log -nographic -no-reboot
+	& $(QEMU) -machine q35 -cpu qemu64,+syscall -m $(QEMU_MEMORY) -pflash "C:\Program Files\qemu\share\edk2-x86_64-code.fd" -drive format=raw,file=fat:rw:$(ESP_DIR) $(USB_QEMU) -serial file:build/serial.log -nographic -no-reboot
 
 dev: run
 
 test: esp
-	& $(QEMU) -machine q35 -cpu qemu64,+syscall -m $(QEMU_MEMORY) -pflash "C:\Program Files\qemu\share\edk2-x86_64-code.fd" -drive format=raw,file=fat:rw:$(ESP_DIR) -serial stdio -display sdl -vga std -no-reboot -d cpu_reset,int 2>&1
+	& $(QEMU) -machine q35 -cpu qemu64,+syscall -m $(QEMU_MEMORY) -pflash "C:\Program Files\qemu\share\edk2-x86_64-code.fd" -drive format=raw,file=fat:rw:$(ESP_DIR) $(USB_QEMU) -serial stdio -display sdl -vga std -no-reboot -d cpu_reset,int 2>&1
 
 clean:
 	Set-Location kernel; cargo clean

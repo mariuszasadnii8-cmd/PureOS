@@ -322,19 +322,178 @@ pub fn glyph_pixel(font: FontId, c: u8, row: usize, col: u32) -> bool {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+//  Cyrillic / Unicode codepoint support
+// ═══════════════════════════════════════════════════════════════════
+
+/// 8x8 Cyrillic glyphs for unique shapes (letters that don't match Latin).
+fn cyrillic_glyph(cp: u16) -> [u8; 8] {
+    match cp {
+        // Б
+        0x0411 | 0x0431 => [0b11111110, 0b10000000, 0b10000000, 0b11111100, 0b10000000, 0b10000000, 0b10000000, 0b11111110],
+        // Г
+        0x0413 | 0x0433 => [0b11111110, 0b10000000, 0b10000000, 0b10000000, 0b10000000, 0b10000000, 0b10000000, 0b10000000],
+        // Д
+        0x0414 | 0x0434 => [0b00111000, 0b01000100, 0b01000100, 0b01000100, 0b01000100, 0b01111100, 0b10000010, 0b10000010],
+        // Ж
+        0x0416 | 0x0436 => [0b10000010, 0b01000100, 0b00101000, 0b11111110, 0b00101000, 0b01000100, 0b10000010, 0b10000010],
+        // З
+        0x0417 | 0x0437 => [0b01111100, 0b10000010, 0b00000010, 0b00011100, 0b00000010, 0b00000010, 0b10000010, 0b01111100],
+        // И
+        0x0418 | 0x0438 => [0b10000010, 0b10000100, 0b10001000, 0b10010000, 0b10100000, 0b11000000, 0b10000000, 0b10000000],
+        // Й
+        0x0419 | 0x0439 => [0b00100100, 0b10000010, 0b10000100, 0b10001000, 0b10010000, 0b10100000, 0b11000000, 0b10000000],
+        // Л
+        0x041B | 0x043B => [0b00110000, 0b01001000, 0b01000100, 0b01000100, 0b01000100, 0b01000100, 0b01000100, 0b01000100],
+        // П
+        0x041F | 0x043F => [0b11111110, 0b10000010, 0b10000010, 0b10000010, 0b10000010, 0b10000010, 0b10000010, 0b11111110],
+        // У
+        0x0423 | 0x0443 => [0b10000010, 0b01000100, 0b00101000, 0b00010000, 0b00010000, 0b00100000, 0b01000000, 0b10000000],
+        // Ф
+        0x0424 | 0x0444 => [0b00010000, 0b00111000, 0b01010100, 0b01010100, 0b01111100, 0b01010100, 0b00010000, 0b00010000],
+        // Ц
+        0x0426 | 0x0446 => [0b10010010, 0b10010010, 0b10010010, 0b10010010, 0b10010010, 0b10010010, 0b10010010, 0b01111110],
+        // Ч
+        0x0427 | 0x0447 => [0b10000010, 0b10000010, 0b10000010, 0b01111110, 0b00000010, 0b00000010, 0b00000010, 0b00000010],
+        // Ш
+        0x0428 | 0x0448 => [0b10010010, 0b10010010, 0b10010010, 0b10010010, 0b10010010, 0b10010010, 0b10010010, 0b11111110],
+        // Щ
+        0x0429 | 0x0449 => [0b10010010, 0b10010010, 0b10010010, 0b10010010, 0b10010010, 0b10010010, 0b10010010, 0b11111111],
+        // Ъ
+        0x042A | 0x044A => [0b11000000, 0b11000000, 0b11111100, 0b10000100, 0b10000100, 0b10000100, 0b10000100, 0b11111100],
+        // Ы
+        0x042B | 0x044B => [0b10000010, 0b10000010, 0b11111100, 0b10000010, 0b10000010, 0b10000010, 0b10000010, 0b11111110],
+        // Ь
+        0x042C | 0x044C => [0b10000000, 0b10000000, 0b11111100, 0b10000010, 0b10000010, 0b10000010, 0b10000010, 0b11111100],
+        // Э
+        0x042D | 0x044D => [0b01111100, 0b10000010, 0b00000010, 0b00011110, 0b00000010, 0b00000010, 0b10000010, 0b01111100],
+        // Ю
+        0x042E | 0x044E => [0b10000100, 0b10111100, 0b10100010, 0b10100010, 0b10100010, 0b10100010, 0b10111100, 0b10000100],
+        // Я
+        0x042F | 0x044F => [0b01111110, 0b10000010, 0b10000010, 0b01111110, 0b00010010, 0b00100010, 0b01000010, 0b10000010],
+        // Ё
+        0x0401 | 0x0451 => [0b00100100, 0b00000000, 0b11111110, 0b10000000, 0b11111100, 0b10000000, 0b10000000, 0b11111110],
+        // Digit separator / soft hyphen (fallback)
+        _ => [0; 8],
+    }
+}
+
+/// Map a Cyrillic codepoint to an ASCII byte if the glyph shape matches,
+/// or return None for unique shapes.
+fn cyrillic_to_ascii(cp: u16) -> Option<u8> {
+    match cp {
+        // Uppercase
+        0x0410 => Some(b'A'), // А
+        0x0412 => Some(b'B'), // В
+        0x0415 => Some(b'E'), // Е
+        0x041A => Some(b'K'), // К
+        0x041C => Some(b'M'), // М
+        0x041D => Some(b'H'), // Н
+        0x041E => Some(b'O'), // О
+        0x0420 => Some(b'P'), // Р
+        0x0421 => Some(b'C'), // С
+        0x0422 => Some(b'T'), // Т
+        0x0425 => Some(b'X'), // Х
+        // Lowercase (map to same shape as uppercase)
+        0x0430 => Some(b'A'), // а
+        0x0432 => Some(b'B'), // в
+        0x0435 => Some(b'E'), // е
+        0x043A => Some(b'K'), // к
+        0x043C => Some(b'M'), // м
+        0x043D => Some(b'H'), // н
+        0x043E => Some(b'O'), // о
+        0x0440 => Some(b'P'), // р
+        0x0441 => Some(b'C'), // с
+        0x0442 => Some(b'T'), // т
+        0x0445 => Some(b'X'), // х
+        _ => None,
+    }
+}
+
+/// Get glyph data for a Unicode codepoint (supports ASCII + Cyrillic).
+pub fn glyph_for_codepoint(font: FontId, codepoint: u16) -> &'static [u8] {
+    let buf = glyph_buf(font);
+    let fh = font_height(font) as usize;
+
+    if codepoint < 128 {
+        // ASCII — use existing glyph()
+        let g = match font {
+            FontId::Compact | FontId::Bold | FontId::Italic | FontId::Serif | FontId::Outline => {
+                let raw = base_glyph(codepoint as u8);
+                for i in 0..fh.min(8) { buf[i] = raw[i]; }
+                return &buf[..fh.min(8)];
+            }
+            _ => {}
+        };
+        // non-8x8 fonts
+        let raw = base_glyph(codepoint as u8);
+        for i in 0..8 { buf[i] = raw[i]; }
+        match font {
+            FontId::Tall => { return glyph_tall(codepoint as u8, buf); }
+            FontId::Vga => { return glyph_vga(codepoint as u8, buf); }
+            FontId::Wide => { return glyph_wide(codepoint as u8, buf); }
+            _ => {}
+        }
+        // Algorithmic variants for Cyrillic: use base glyph in buf
+        let cp = codepoint as u8;
+        return match font {
+            FontId::Bold => glyph_bold(cp, buf),
+            FontId::Italic => glyph_italic(cp, buf),
+            FontId::Serif => glyph_serif(cp, buf),
+            FontId::Outline => glyph_outline(cp, buf),
+            _ => &buf[..fh.min(8)],
+        };
+    }
+
+    // Cyrillic range (U+0400–U+04FF)
+    if codepoint >= 0x0400 && codepoint <= 0x04FF {
+        // Try ASCII mapping first
+        if let Some(ascii) = cyrillic_to_ascii(codepoint) {
+            return match font {
+                FontId::Compact => {
+                    let raw = base_glyph(ascii);
+                    for i in 0..8 { buf[i] = raw[i]; }
+                    &buf[..8]
+                }
+                FontId::Bold => glyph_bold(ascii, buf),
+                FontId::Italic => glyph_italic(ascii, buf),
+                FontId::Serif => glyph_serif(ascii, buf),
+                FontId::Outline => glyph_outline(ascii, buf),
+                FontId::Tall => glyph_tall(ascii, buf),
+                FontId::Vga => glyph_vga(ascii, buf),
+                FontId::Wide => glyph_wide(ascii, buf),
+            };
+        }
+        // Unique Cyrillic glyphs — only Compact font for simplicity
+        let raw = cyrillic_glyph(codepoint);
+        for i in 0..8 { buf[i] = raw[i]; }
+        return &buf[..8.min(fh)];
+    }
+
+    // Fallback: empty glyph
+    for i in 0..fh { buf[i] = 0; }
+    &buf[..fh]
+}
+
+/// Check pixel for a codepoint glyph.
+pub fn glyph_pixel_codepoint(font: FontId, codepoint: u16, row: usize, col: u32) -> bool {
+    let g = glyph_for_codepoint(font, codepoint);
+    let w = font_width(font);
+    if w == 10 {
+        if row * 2 + 1 >= g.len() { return false; }
+        let hi = g[row * 2] as u16;
+        let lo = g[row * 2 + 1] as u16;
+        let pair = (hi << 8) | lo;
+        pair & (0x200u16 >> col) != 0
+    } else {
+        if row >= g.len() { return false; }
+        g[row] & (0x80u8 >> col) != 0
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Main API — returns a reference to the glyph bitmap (width x height rows)
 // ---------------------------------------------------------------------------
 pub fn glyph(font: FontId, c: u8) -> &'static [u8] {
-    let buf = glyph_buf(font);
-    match font {
-        FontId::Compact => { let g = base_glyph(c); for i in 0..8 { buf[i] = g[i]; } &buf[..8] }
-        FontId::Bold => glyph_bold(c, buf),
-        FontId::Italic => glyph_italic(c, buf),
-        FontId::Serif => glyph_serif(c, buf),
-        FontId::Outline => glyph_outline(c, buf),
-        FontId::Tall => glyph_tall(c, buf),
-        FontId::Vga => glyph_vga(c, buf),
-        FontId::Wide => glyph_wide(c, buf),
-    }
+    glyph_for_codepoint(font, c as u16)
 }

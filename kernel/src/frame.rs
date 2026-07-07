@@ -17,6 +17,7 @@ static mut POOL_NEXT: u64 = 0;
 static mut POOL_END: u64 = 0;
 static mut POOL_BASE: u64 = 0;
 static mut FREE_LIST_HEAD: u64 = 0;
+static mut TOTAL_PHYSICAL_MEMORY: u64 = 0;
 
 #[derive(Copy, Clone)]
 pub struct FrameStats {
@@ -112,4 +113,14 @@ pub unsafe fn alloc_frame() -> Option<u64> {
     POOL_NEXT = next + FRAME_SIZE;
     write_bytes(next as *mut u8, 0, FRAME_SIZE as usize);
     Some(next)
+}
+
+/// Установить общий объём физической памяти (из UEFI memory map).
+pub unsafe fn set_total_physical_memory(total: u64) {
+    TOTAL_PHYSICAL_MEMORY = total;
+}
+
+/// Получить общий объём физической памяти.
+pub fn total_physical_memory() -> u64 {
+    unsafe { TOTAL_PHYSICAL_MEMORY }
 }

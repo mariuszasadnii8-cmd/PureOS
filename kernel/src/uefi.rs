@@ -17,6 +17,7 @@ const RT_OFF_RESET_SYSTEM: u64 = 88;
 static mut UEFI_CON_OUT: u64 = 0;
 static mut UEFI_CON_IN: u64 = 0;
 static mut UEFI_RT: u64 = 0;
+static mut UEFI_ST: u64 = 0;
 static mut UEFI_READY: bool = false;
 
 /// Инициализировать UEFI-обёртки. Вызывается из kernel_main.
@@ -25,11 +26,17 @@ pub unsafe fn init(system_table: u64, con_in: u64) {
     UEFI_CON_OUT = *(st.add(ST_OFF_CON_OUT as usize) as *const u64);
     UEFI_CON_IN = con_in;
     UEFI_RT = *(st.add(ST_OFF_RUNTIME as usize) as *const u64);
+    UEFI_ST = system_table;
     UEFI_READY = true;
 
     // Также регистрируем SystemTable в uefi crate (для доступа через system::*)
     let st_ptr = system_table as *const uefi_raw::table::system::SystemTable;
     uefi::table::set_system_table(st_ptr);
+}
+
+/// Вернуть адрес UEFI SystemTable (для доступа к ACPI через ConfigurationTable).
+pub fn system_table_addr() -> u64 {
+    unsafe { UEFI_ST }
 }
 
 pub fn is_ready() -> bool { unsafe { UEFI_READY } }

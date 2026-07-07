@@ -19,9 +19,11 @@ const PCI_SUBCLASS: u8 = 0x03;
 const PCI_PROGIF_EHCI: u8 = 0x20;
 
 /// Найти EHCI контроллер на PCI. Возвращает MMIO base (BAR0).
+/// Ищем только на bus 0..8 (первые 9 шин) — достаточно для реального железа,
+/// и не зависаем на пустых шинах.
 pub unsafe fn find_controller() -> Option<u64> {
-    for bus in 0..=0xFF {
-        for slot in 0..32 {
+    for bus in 0u8..8 {
+        for slot in 0u8..32 {
             let vendor = cpu::pci_read32(bus, slot, 0, 0) & 0xFFFF;
             if vendor == 0 || vendor == 0xFFFF { continue; }
             let class = cpu::pci_read32(bus, slot, 0, 8) >> 24;

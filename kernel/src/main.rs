@@ -5,6 +5,7 @@ use core::arch::naked_asm;
 use core::panic::PanicInfo;
 use core::ptr::addr_of_mut;
 
+mod acpi;
 mod apic;
 mod ata;
 mod barrel;
@@ -12,12 +13,15 @@ mod barrelc;
 mod blockfs;
 mod commands;
 mod config;
+mod pos;
 mod console;
 mod context;
 mod cpu;
+mod desktop;
 mod documentation;
 mod elf;
 mod ephemeral;
+mod filer;
 mod font;
 mod fs;
 mod image;
@@ -28,6 +32,8 @@ mod hw;
 mod idt;
 mod installer;
 mod keyboard;
+mod ps2mouse;
+mod settings;
 mod shell;
 mod smp;
 mod snake_game;
@@ -37,9 +43,17 @@ mod terminal;
 mod test_runner;
 mod uefi;
 mod wallpaper;
+mod window;
+mod cmos;
+mod pcspeaker;
+mod sound;
+mod math;
+mod fun;
+mod gfx3d;
 mod jpeg;
 mod gif;
 mod net;
+mod paint;
 mod usb;
 
 /// Кристаллическая структура топологии ядра (замораживается при старте).
@@ -68,6 +82,8 @@ pub struct PureBootInfo {
     pub system_table: u64,
     /// EFI_SIMPLE_TEXT_INPUT_PROTOCOL*
     pub con_in: u64,
+    /// Общий объём доступной оперативной памяти (по UEFI memory map).
+    pub total_ram: u64,
 }
 
 const BOOT_MAGIC: u64 = 0x5055_5245_4f53_0001;
@@ -99,40 +115,9 @@ pub extern "win64" fn kernel_main(boot_info: *const PureBootInfo) -> ! {
         freeze_topology(boot_info);
         init_frame_pool(boot_info);
         fs::init();
-        // Передаём в hw размер пула фреймов как ориентир доступной RAM.
-        let (ram_b, ram_s) = if !boot_info.is_null() && (*boot_info).magic == BOOT_MAGIC {
-            ((*boot_info).heap_base, (*boot_info).heap_size)
-        } else {
-            (0, 0)
-        };
-        hw::init(ram_b, ram_s);
 
-        // Инициализация ATA-диска и блочной ФС (персистентное хранилище).
-        console::boot_msg(b"[ATA] Init disk...\n");
-        blockfs::init();
-        console::boot_msg(b"[ATA] OK\n");
-
-        // Инициализация фреймбуфера (GOP от загрузчика) — для boot-экрана
+        // Показываем прогресс-бар если есть фреймбуфер
         let info = &*boot_info;
-        console::serial_puts(b"[KERNEL] boot-info ptr=0x");
-        console::serial_hex(boot_info as u64);
-        console::serial_puts(b" first=0x");
-        console::serial_hex(core::ptr::read_unaligned(boot_info as *const u64));
-        console::serial_puts(b" second=0x");
-        console::serial_hex(core::ptr::read_unaligned((boot_info as *const u8).add(8) as *const u64));
-        console::serial_puts(b"\n");
-        console::serial_puts(b"[KERNEL] boot-info magic=0x");
-        console::serial_hex(info.magic);
-        console::serial_puts(b" fb=0x");
-        console::serial_hex(info.framebuffer_base);
-        console::serial_puts(b" size=");
-        console::serial_dec(info.framebuffer_size);
-        console::serial_puts(b" res=");
-        console::serial_dec(info.framebuffer_width as u64);
-        console::serial_puts(b"x");
-        console::serial_dec(info.framebuffer_height as u64);
-        console::serial_puts(b"\n");
-
         if info.magic == BOOT_MAGIC {
             framebuffer::init(
                 info.framebuffer_base,
@@ -141,69 +126,107 @@ pub extern "win64" fn kernel_main(boot_info: *const PureBootInfo) -> ! {
                 info.framebuffer_stride,
                 info.framebuffer_format,
             );
-            console::serial_puts(b"[KERNEL] framebuffer init ok\n");
-        } else {
-            console::serial_puts(b"[KERNEL] boot-info magic mismatch\n");
         }
 
+        // Передаём в hw размер пула фреймов как ориентир доступной RAM.
+        let (ram_b, ram_s) = if !boot_info.is_null() && (*boot_info).magic == BOOT_MAGIC {
+            ((*boot_info).heap_base, (*boot_info).heap_size)
+        } else {
+            (0, 0)
+        };
+        hw::init(ram_b, ram_s);
+
+        // Прогресс: 5%
+        console::boot_progress(5);
+
+        // Инициализация ATA-диска и блочной ФС (персистентное хранилище).
+        console::boot_msg(b"[ATA] Init disk...\n");
+        blockfs::init();
+        console::boot_msg(b"[ATA] OK\n");
+        console::boot_progress(10);
+
         // Экранный текстовый терминал (рендерит глифы прямо в GOP-фреймбуфер).
-        // Инициализируем сразу после фреймбуфера, чтобы дальнейший boot-лог
-        // попадал прямо в консоль без промежуточного сплэш-экрана.
         terminal::init();
 
-        // UEFI SystemTable + ConIn (нужно для клавиатуры и reboot; НЕ для вывода)
+        // Показать начальный boot-прогресс
+        console::boot_progress(12);
+
+        // UEFI SystemTable + ConIn
         uefi::init(info.system_table, info.con_in);
         console::boot_msg(b"[UEFI] SystemTable & protocols initialized\n");
         console::boot_msg(b"[BOOT] Crystal topology frozen\n");
+        console::boot_progress(15);
 
         // CPU: GDT/TSS
         console::boot_msg(b"[CPU] Init GDT/TSS...\n");
         cpu::init_gdt();
         console::boot_msg(b"[CPU] OK\n");
+        console::boot_progress(20);
 
-        // IDT — свои обработчики исключений (иначе любой #PF/#GP = тройная ошибка).
+        // IDT
         console::boot_msg(b"[IDT] Init interrupt descriptor table...\n");
         idt::init();
         idt::load();
         console::boot_msg(b"[IDT] OK\n");
+        console::boot_progress(25);
 
-        // APIC-таймер отключен: ядро использует кооперативный планировщик,
-        // прерывания остаются выключенными (cli) для избежания конфликтов с UEFI.
-        console::boot_msg(b"[APIC] Skipping APIC timer (cooperative scheduler)\n");
+        // APIC: детекция x2APIC и калибровка таймера
+        console::boot_msg(b"[APIC] Detecting x2APIC mode...\n");
+        apic::detect_x2apic();
+        console::boot_msg(b"[APIC] Calibrating timer...\n");
+        apic::calibrate();
+        console::boot_msg(b"[APIC] Timer disabled (cooperative scheduler)\n");
+        console::boot_progress(30);
 
         // Process manager
         console::boot_msg(b"[SYS] Init process table...\n");
         syscall::init_process_manager();
         console::boot_msg(b"[SYS] OK\n");
+        console::boot_progress(35);
 
         // Syscall MSRs
         console::boot_msg(b"[SYS] Init SYSCALL/SYSRET...\n");
         syscall::init_syscall_msrs();
         console::boot_msg(b"[SYS] OK\n");
+        console::boot_progress(40);
 
-        // Клавиатура (UEFI Simple Text Input)
+        // Клавиатура
         console::boot_msg(b"[KBD] Init UEFI keyboard...\n");
         keyboard::init();
         console::boot_msg(b"[KBD] OK\n");
+        console::boot_progress(45);
 
-        // Показать аккуратный boot-баннер и передать управление оболочке,
-        // чтобы QEMU отображал живой консольный промпт, а не статичную заглушку.
-        // SMP: инициализация многопроцессорности.
+        // SMP
         console::boot_msg(b"[SMP] Init symmetric multiprocessing...\n");
         smp::init();
         console::boot_msg(b"[SMP] OK\n");
+        console::boot_progress(60);
 
-        // USB: EHCI + HID клавиатура
+        // USB
         console::boot_msg(b"[USB] Init USB subsystem...\n");
         usb::init();
         console::boot_msg(b"[USB] OK\n");
+        console::boot_progress(70);
 
-        // Первый опрос USB для обнаружения устройств
+        // Первый опрос USB
         console::boot_msg(b"[USB] Polling for devices...\n");
         usb::poll();
+        console::boot_progress(80);
 
+        // Draw boot banner
         console::boot_msg(b"[SYS] Console ready. Entering shell.\n");
+        console::boot_progress(100);
         terminal::draw_boot_banner();
+
+        // Boot jingle
+        console::boot_msg(b"[SND] Initializing sound...\n");
+        sound::boot();
+        console::boot_msg(b"[SND] OK\n");
+
+        // RTC init (read once to warm up)
+        let _rtc = cmos::read_rtc();
+        console::boot_msg(b"[RTC] Real-time clock active\n");
+
         shell::run();
     }
 }
@@ -226,9 +249,12 @@ unsafe fn freeze_topology(boot_info: *const PureBootInfo) {
     let n = crate::hw::cpu_threads() as usize;
     (*topo).cpu_count = if n > 0 { n } else { 1 };
     (*topo).ram_base = info.heap_base;
-    (*topo).ram_size = info.heap_size;
+    (*topo).ram_size = info.total_ram.max(info.heap_size);
     (*topo).rom_base = 0;
     (*topo).rom_size = 0;
+
+    // Сохранить total_ram в frame-allocator для статистики
+    frame::set_total_physical_memory(info.total_ram);
 }
 
 unsafe fn init_frame_pool(boot_info: *const PureBootInfo) {

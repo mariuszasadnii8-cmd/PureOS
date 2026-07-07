@@ -121,9 +121,35 @@ pub fn cpu_brand(out: &mut [u8; 48]) -> usize {
     }
 }
 
-/// Число логических процессоров (из CPUID.1:EBX[23:16]).
+/// Число логических процессоров.
+///
+/// Сначала пытается CPUID leaf 0Bh (Extended Topology Enumeration) —
+/// он точен на современном железе (Kaby Lake+). Если не поддерживается,
+/// fallback на CPUID.1:EBX[23:16].
 pub fn cpu_threads() -> u32 {
     unsafe {
+        // CPUID leaf 0Bh: Extended Topology Enumeration
+        let (max_leaf, _, _, _) = cpuid(0, 0);
+        if max_leaf >= 0x0B {
+            let mut max_threads = 0u32;
+            for subleaf in 0..4u32 {
+                let (_, ebx, ecx, _) = cpuid(0x0B, subleaf);
+                let level_type = (ecx >> 8) & 0xFF; // ECX[15:8] = SMT(1)/Core(2)/...
+                let _level_num = ecx & 0xFF;         // ECX[7:0]
+                if level_type == 0 {
+                    break;
+                }
+                let n = ebx & 0xFFFF; // EBX[15:0]
+                if n > max_threads {
+                    max_threads = n;
+                }
+            }
+            if max_threads > 0 {
+                return max_threads;
+            }
+        }
+
+        // Fallback: CPUID.1:EBX[23:16]
         let (_, ebx, _, _) = cpuid(1, 0);
         let n = (ebx >> 16) & 0xFF;
         if n == 0 { 1 } else { n }

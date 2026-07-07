@@ -1,0 +1,61 @@
+// Ищем доступный протокол указателя (мышь/тачпад)
+    let pointer_handle = match boot_services.get_handle_for_protocol::<SimplePointer>() {
+        Ok(handle) => handle,
+        Err(e) => {
+            writeln!(stdout, "Error: Simple Pointer Protocol not found: {:?}", e).unwrap();
+            return Status::UNSUPPORTED;
+        }
+    };
+
+    // Открываем протокол для взаимодействия
+    let mut pointer: ScopedProtocol<SimplePointer> = match boot_services
+        .open_protocol_exclusive::<SimplePointer>(pointer_handle) 
+    {
+        Ok(p) => p,
+        Err(e) => {
+            writeln!(stdout, "Error opening pointer protocol: {:?}", e).unwrap();
+            return Status::BUFFER_TOO_SMALL;
+        }
+    };
+
+    // Сбрасываем устройство перед использованием (true - расширенная проверка)
+    writeln!(stdout, "Resetting device...").unwrap();
+    if let Err(e) = pointer.reset(true) {
+        writeln!(stdout, "Reset failed: {:?}", e).unwrap();
+    }
+
+    writeln!(stdout, "Device ready. Move mouse or click. Press any key on keyboard to exit.\n").unwrap();
+
+    loop {
+        // Проверяем, появились ли новые данные от мыши
+        match pointer.get_state() {
+            Ok(Some(state)) => {
+                // state.relative_movement_x и y показывают смещение
+                // state.left_button и right_button показывают состояние кнопок
+                writeln!(
+                    stdout,
+                    "X: {:5} | Y: {:5} | Z: {:5} | L: {} | R: {}",
+                    state.relative_movement_x,
+                    state.relative_movement_y,
+                    state.relative_movement_z,
+                    if state.left_button { "DOWN" } else { "UP  " },
+                    if state.right_button { "DOWN" } else { "UP  " }
+                ).unwrap();
+            }
+            Ok(None) => {
+                // Данных пока нет, спим или проверяем клавиатуру
+            }
+            Err(e) => {
+                writeln!(stdout, "Error reading state: {:?}", e).unwrap();
+            }
+        }
+
+        // Проверяем нажатие клавиши для выхода, чтобы не зависнуть в цикле навсегда
+        if let Ok(Some(_)) = system_table.stdin().read_key() {
+            writeln!(stdout, "Exiting...").unwrap();
+            break;
+        }
+
+        // Небольшая задержка, чтобы не перегружать процессор в цикле опроса
+        boot_services.stall(10_000); // 10 миллисекунд
+    }
